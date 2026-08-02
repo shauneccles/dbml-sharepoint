@@ -82,6 +82,25 @@ class FindingCode(StrEnum):
 
     UNKNOWN_ENTITY = "unknown_entity"
 
+    # --- schema-only rules, from validator.validate() ---
+    AUTO_INCREMENT_PK_MUST_BE_ID = "auto_increment_pk_must_be_id"
+    COLUMN_NAME_TOO_LONG = "column_name_too_long"
+    CROSS_SITE_EXPANSION_UNHANDLED = "cross_site_expansion_unhandled"
+    DEFAULT_NOT_AN_ENUM_MEMBER = "default_not_an_enum_member"
+    DUPLICATE_COLUMN_NAME = "duplicate_column_name"
+    DUPLICATE_ENUM_NAME = "duplicate_enum_name"
+    DUPLICATE_TABLE_NAME = "duplicate_table_name"
+    EMPTY_ENUM = "empty_enum"
+    ILLEGAL_COLUMN_NAME_CHARACTER = "illegal_column_name_character"
+    LEGACY_CHOICE_TYPE = "legacy_choice_type"
+    ORPHAN_ENUM = "orphan_enum"
+    RESERVED_COLUMN_NAME = "reserved_column_name"
+    UNIQUE_UNSUPPORTED_FOR_TYPE = "unique_unsupported_for_type"
+    UNIQUE_WITHOUT_NOT_NULL = "unique_without_not_null"
+    UNKNOWN_COLUMN_TYPE = "unknown_column_type"
+    UNKNOWN_REF_TARGET = "unknown_ref_target"
+
+
 
 @dataclass(frozen=True, slots=True)
 class Finding:
