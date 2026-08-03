@@ -29,7 +29,15 @@ jobs:
       - name: Type-check
         run: uv run mypy
       - name: Tests
-        run: uv run pytest
+        # Coverage is collected here rather than in a second run: the
+        # reachability gate below needs the executed-line data, and running the
+        # suite twice to get it would double the slowest step in this job.
+        run: uv run pytest --cov=dbml_sharepoint --cov-report=json:coverage.json
+      - name: Every finding code is reached by a test
+        # A rule can be documented in the published catalogue, statically
+        # referenced, and fire for nobody. `test_every_code_can_actually_be_produced`
+        # is explicit that it only proves the reference. This proves the rule runs.
+        run: uv run python website/scripts/check_finding_reachability.py
       - name: Build both examples end-to-end
         run: |
           uv run dbml-sharepoint build --schema examples/minimal/schema.dbml --mapping examples/minimal/mapping.yaml --release examples/minimal/release.yaml --site-url https://example.sharepoint.com/sites/ci --site-role default --out examples/minimal/build

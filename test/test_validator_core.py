@@ -21,6 +21,7 @@ from _paths import FIXTURES
 
 from dbml_sharepoint.analysis.findings import FindingCode, Location, Section
 from dbml_sharepoint.analysis.validator import (
+    MAX_INTERNAL_NAME,
     Finding,
     validate,
     validate_against_mapping,
@@ -222,6 +223,111 @@ def test_unique_is_rejected_for_unsupported_sharepoint_types(
     assert finding.severity == "error"
     # The type is the parameter under test and the thing the author must change.
     assert column_type in finding.message
+
+# --- The schema-level rules, which nothing reached at runtime ---------------
+#
+# Six rules whose construction sites no test executed. They are the cheapest
+# checks in the codebase and the ones a first-time author is most likely to
+# trip, and they were invisible for a structural reason worth recording: 132
+# call sites in this suite go through `validate_against_mapping`, while every
+# one of these surfaces from `validate`. A rule can be documented, statically
+# referenced and completely unexercised, which is the failure class this
+# project exists to close, pointed at the validator itself.
+#
+# Measured, not guessed: see #98 for the coverage-intersection method and the
+# `test_every_finding_code_is_reached` guard that keeps the count at zero.
+
+
+def test_a_duplicate_table_name_is_an_error() -> None:
+    findings = validate(make_schema(make_table("Risk"), make_table("Risk")))
+
+    assert only(findings, FindingCode.DUPLICATE_TABLE_NAME).severity == "error"
+
+
+def test_a_duplicate_column_name_is_an_error() -> None:
+    """Duplicated within one table, not across two -- two tables may each
+    have a `Title`, and only the within-table clash is a name collision on
+    the provisioned list."""
+    findings = validate(make_schema(
+        make_table("Risk", make_column("Title"), make_column("Title")),
+    ))
+
+    finding = only(findings, FindingCode.DUPLICATE_COLUMN_NAME)
+    assert finding.severity == "error"
+    assert "Title" in finding.message
+
+
+def test_two_tables_may_each_declare_the_same_column_name() -> None:
+    """The other half of the rule above: these become separate SharePoint
+    lists, so `Risk.Title` and `Task.Title` are not a collision. Without this
+    the rule could be "fixed" into refusing every schema in the repository
+    and the test above would still pass."""
+    findings = validate(make_schema(
+        make_table("Risk", make_column("Title")),
+        make_table("Task", make_column("Title")),
+    ))
+
+    none_of(findings, FindingCode.DUPLICATE_COLUMN_NAME)
+
+
+def test_a_duplicate_enum_name_is_an_error() -> None:
+    findings = validate(make_schema(
+        make_table("Risk", make_column("Status", "status")),
+        enums=[make_enum("status", "Open"), make_enum("status", "Shut")],
+    ))
+
+    assert only(findings, FindingCode.DUPLICATE_ENUM_NAME).severity == "error"
+
+
+def test_an_enum_with_no_members_is_a_warning() -> None:
+    """A warning rather than an error: an empty enum provisions a Choice
+    column with no choices, which is useless but not unsafe."""
+    findings = validate(make_schema(
+        make_table("Risk", make_column("Status", "status")),
+        enums=[make_enum("status")],
+    ))
+
+    assert only(findings, FindingCode.EMPTY_ENUM).severity == "warning"
+
+
+@pytest.mark.parametrize("illegal", [" ", "!", "@", ":", "/", "\\", "'", "<"])
+def test_an_illegal_character_in_a_column_name_is_an_error(illegal: str) -> None:
+    """Parametrised over a sample of the refused set rather than testing one.
+
+    The rule is a single `any(c in name for c in ...)` over a hand-written
+    character string, so a character silently dropped from that string is
+    exactly the regression this cannot otherwise see -- and a one-character
+    test would keep passing through it.
+    """
+    findings = validate(make_schema(
+        make_table("Risk", make_column(f"Bad{illegal}Name")),
+    ))
+
+    assert only(findings, FindingCode.ILLEGAL_COLUMN_NAME_CHARACTER).severity == "error"
+
+
+def test_a_column_name_at_the_limit_is_accepted() -> None:
+    """The boundary, from the constant rather than a literal 32.
+
+    A test written against a hard-coded length passes while disagreeing with
+    the rule it is meant to pin, the moment somebody changes the constant.
+    """
+    findings = validate(make_schema(
+        make_table("Risk", make_column("A" * MAX_INTERNAL_NAME)),
+    ))
+
+    none_of(findings, FindingCode.COLUMN_NAME_TOO_LONG)
+
+
+def test_a_column_name_over_the_limit_is_an_error() -> None:
+    findings = validate(make_schema(
+        make_table("Risk", make_column("A" * (MAX_INTERNAL_NAME + 1))),
+    ))
+
+    finding = only(findings, FindingCode.COLUMN_NAME_TOO_LONG)
+    assert finding.severity == "error"
+    assert str(MAX_INTERNAL_NAME) in finding.message
+
 
 def test_orphan_enum_is_warning() -> None:
     findings = validate(

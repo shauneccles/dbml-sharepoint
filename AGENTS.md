@@ -106,6 +106,20 @@ it (`gh stack`), so each layer keeps its own title and its own changelog entry.
 - **Regenerate the API reference** when Python signatures, docstrings or template
   contract comments change: `uv run python website/scripts/generate_api.py`, then
   commit the real diff.
+- **A new validator rule needs a test that makes it FIRE.** Referencing the
+  code is not enough — `test_every_code_can_actually_be_produced` is a static
+  check and says so. CI runs the suite under coverage and then
+  `website/scripts/check_finding_reachability.py`, which fails when a code's
+  construction site was never executed. Locally:
+
+  ```bash
+  uv run pytest -q --cov=dbml_sharepoint --cov-report=json:coverage.json
+  uv run python website/scripts/check_finding_reachability.py
+  ```
+
+  `NOT_YET_REACHED` in that script is a **shrinking allowlist**, like
+  `NOT_YET_UPLIFTED` in `test_template_standard.py`: take an entry out in the
+  commit that covers it, never add one to make a build pass.
 - **Emitted JS.** For template changes, build an example and `node --check` the
   emitted scripts.
 - **`uv run pytest` runs with `filterwarnings = ["error"]`.** A new dependency
