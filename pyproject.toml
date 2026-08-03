@@ -102,6 +102,44 @@ files = ["src", "test", "website/scripts"]
 module = "pydbml.*"
 ignore_missing_imports = true
 
+[tool.coverage.run]
+# Measured on the package, not on the test tree: a test file that never runs
+# is a dead test, which is a different problem with a different answer.
+source = ["dbml_sharepoint"]
+# Branch coverage, deliberately. Line coverage cannot tell a rule that fires
+# from one whose `if` is only ever false, and this codebase is mostly
+# fail-closed guards -- the branch that never gets taken IS the thing worth
+# seeing. It is also what showed 34 finding codes with a construction site no
+# test reaches (#98).
+branch = true
+# pytest runs with `-n auto`; each xdist worker writes its own data file and
+# pytest-cov combines them.
+parallel = true
+
+[tool.coverage.report]
+show_missing = true
+# Fully-covered files are noise in a 100-file report; what is missing is the
+# whole point of reading it.
+skip_covered = true
+exclude_also = [
+  # `if TYPE_CHECKING:` bodies never execute at runtime by design.
+  "if TYPE_CHECKING:",
+  # A `@overload` stub has no body to run.
+  "@overload",
+  # Unreachable-by-construction guards. These are written as belt-and-braces
+  # in a fail-closed codebase and are meant never to be hit.
+  "raise NotImplementedError",
+  "if __name__ == .__main__.:",
+]
+# A ratchet, not a target. 94.71% branch coverage measured when this was
+# turned on, rounded down: it can only go up. Raise it when the real number
+# moves; never lower it to make a build pass.
+#
+# Deliberately NOT 100. A number that can only be held by writing tests for
+# unreachable defensive branches buys nothing and teaches people to write
+# tests that assert nothing, which is worse than the gap it closed.
+fail_under = 94
+
 [tool.pytest.ini_options]
 testpaths = ["test"]
 # `-n auto` distributes across cores; the suite is ~1300 short tests with no

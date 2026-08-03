@@ -9,7 +9,6 @@ build/
 .mypy_cache/
 .ruff_cache/
 .coverage
-coverage.json
 
 # Example / template build output
 examples/**/build/
