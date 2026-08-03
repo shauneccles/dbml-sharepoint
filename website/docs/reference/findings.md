@@ -44,7 +44,7 @@ dbml-sharepoint explain unknown_column_type
 | `calculated_formula_self_reference` | error | A calculated formula references its own column. |
 | `calculated_formula_too_long` | error | A calculated formula is longer than SharePoint's limit. |
 | `calculated_formula_unknown_column` | error | A calculated formula references a column that is not rendered. SharePoint resolves references when the field is created and rejects the POST on any miss. |
-| `calculated_formula_unsupported_operand` | error | A calculated formula references a Lookup, Person, multi-line-text, rich-text or Hyperlink column. Measured against a live site: SharePoint refuses all five when the field is created. |
+| `calculated_formula_unsupported_operand` | error | A calculated formula references a Lookup, Person, multi-line- text, rich-text or Hyperlink column. Measured against a live site: SharePoint refuses all five when the field is created. |
 | `color_by_map_key_not_in_enum` | error | A `data-bar` `color_by` map names a choice the source column's enum does not contain. |
 | `column_name_too_long` | error | A column's internal name exceeds SharePoint's length limit. |
 | `column_not_rendered` | error | A `form_visibility` or `column_validation` entry names a column the list does not render. |
@@ -121,7 +121,7 @@ dbml-sharepoint explain unknown_column_type
 | `duplicate_enum_name` | error | Two enums share a name. |
 | `duplicate_group_name` | error | Two `groups` entries share a name case-insensitively, which SharePoint resolves to one group. |
 | `duplicate_index_target` | error | One table's `indexes { }` names the same column twice. |
-| `duplicate_permission_level_name` | error | Two `permission_levels` entries share a name case-insensitively, which SharePoint resolves to one level. |
+| `duplicate_permission_level_name` | error | Two `permission_levels` entries share a name case- insensitively, which SharePoint resolves to one level. |
 | `duplicate_table_name` | error | Two tables share a name. |
 | `duplicate_view_title` | error | Two views on one entity share a title, or differ only in case — SharePoint treats those as one view. |
 | `duplicate_view_url_slug` | error | Two view titles collapse to the same `.aspx` URL slug, so the two view pages would fight over one page. |
@@ -133,6 +133,7 @@ dbml-sharepoint explain unknown_column_type
 | `enum_members_differ` | error | A DBML enum's members differ from the choices configured for it in `enum_sources`. |
 | `enum_source_has_no_dbml_enum` | warning | A configured `enum_sources` entry has no matching DBML enum in the schema. |
 | `extension_reported` | error | A finding raised by an extension's own validators. |
+| `extension_warning` | warning | A non-blocking finding raised by an extension's own validators. The error-severity twin is `extension_reported`. |
 | `field_set_empty` | error | A field set declares no columns. |
 | `field_set_name_has_marker` | error | A field set's name contains `@`, which is the marker a view's `fields` uses to reference a set. |
 | `field_set_unreferenced` | warning | A field set is declared but no view on that entity expands it. |
@@ -212,7 +213,7 @@ dbml-sharepoint explain unknown_column_type
 | `unknown_entity` | error | A mapping section names an entity the mapping does not declare. |
 | `unknown_field_set_reference` | error | A view's `fields` references `@name`, but the entity declares no field set of that name. |
 | `unknown_owner_group` | error | A group's `owner_group` is neither a built-in SharePoint group nor a declared custom one. |
-| `unknown_permission_level` | error | An assignment names a permission level that is neither built-in nor declared. |
+| `unknown_permission_level` | error | An assignment names a permission level that is neither built- in nor declared. |
 | `unknown_principal_group` | error | An assignment names a group that is neither built-in nor declared. |
 | `unknown_ref_target` | error | A `ref` points at a table the schema does not define. |
 | `unknown_retention_policy` | error | A retention `list_defaults` entry names a policy that is not defined. |

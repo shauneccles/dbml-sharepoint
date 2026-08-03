@@ -452,7 +452,7 @@ def explain(
     """
     if not code:
         for member in sorted(FINDING_HELP):
-            typer.echo(f"  {FINDING_HELP[member].severity:<7}  {member}")
+            typer.echo(f"  {member.severity:<7}  {member}")
         typer.echo(
             f"\n{len(FINDING_HELP)} codes. "
             "Run `dbml-sharepoint explain <code>` for any one of them.",
@@ -474,9 +474,10 @@ def explain(
         )
         raise typer.Exit(code=2)
 
-    entry = FINDING_HELP[found]
-    typer.echo(f"{found}  [{entry.severity}]\n")
-    for line in wrap(entry.meaning, width=76):
+    # Severity off the code, meaning off the catalogue: the two facts have
+    # one home each, and this is just the place they are printed together.
+    typer.echo(f"{found}  [{found.severity}]\n")
+    for line in wrap(FINDING_HELP[found], width=76):
         typer.echo(line)
 
 

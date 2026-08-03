@@ -102,7 +102,6 @@ def check(vc: ValidationContext) -> list[Finding]:
         if entity.kind == "DocumentLibrary":
             findings.append(Finding(
                 FindingCode.DOCUMENT_LIBRARY_UNSUPPORTED,
-                "error",
                 f"entities[{entity_name}]: kind 'DocumentLibrary' is not supported. "
                 f"A library's items are files and this tool writes list rows, so a "
                 f"library cannot carry seeded demo data (SharePoint refuses a POST to "
@@ -126,7 +125,6 @@ def check(vc: ValidationContext) -> list[Finding]:
         elif entity.base_template != _GENERIC_LIST_TEMPLATE:
             findings.append(Finding(
                 FindingCode.UNSUPPORTED_BASE_TEMPLATE,
-                "error",
                 f"entities[{entity_name}]: base_template {entity.base_template} is not "
                 f"supported; this tool builds generic lists (BaseTemplate "
                 f"{_GENERIC_LIST_TEMPLATE}). The create call sends BaseTemplate and "
@@ -155,7 +153,6 @@ def check(vc: ValidationContext) -> list[Finding]:
             if not entity.accept_unindexable_display_column:
                 findings.append(Finding(
                     FindingCode.CALCULATED_DISPLAY_COLUMN_UNINDEXABLE,
-                    "warning",
                     f"{entity_name}.display_column: {display!r} is a calculated "
                     f"column. Calculated columns cannot be indexed, so this "
                     f"list's lookup picker stops working once it passes roughly "
@@ -178,7 +175,6 @@ def check(vc: ValidationContext) -> list[Finding]:
                 reasons.append(f"the display column {display!r} is not calculated")
             findings.append(Finding(
                 FindingCode.REDUNDANT_DISPLAY_COLUMN_ACCEPTANCE,
-                "warning",
                 f"{entity_name}: accept_unindexable_display_column is set, but "
                 + " and ".join(reasons)
                 + ". Remove it -- there is nothing to accept.",
@@ -218,7 +214,6 @@ def check(vc: ValidationContext) -> list[Finding]:
                 )
                 findings.append(Finding(
                     FindingCode.DISPLAY_COLUMN_NOT_RENDERED,
-                    "error",
                     f"{entity_name}.display_column: {display!r} is not a "
                     f"rendered column of {entity_name}{hint}. It is indexed "
                     f"automatically because this list is a lookup target, so "
@@ -232,7 +227,6 @@ def check(vc: ValidationContext) -> list[Finding]:
             ):
                 findings.append(Finding(
                     FindingCode.DISPLAY_COLUMN_TYPE_UNINDEXABLE,
-                    "error",
                     f"{entity_name}.display_column: {display!r} is a "
                     f"{UNSUPPORTED_INDEX_TYPES[display_column.type]} column, "
                     f"which SharePoint cannot index. A lookup target's display "
@@ -247,7 +241,6 @@ def check(vc: ValidationContext) -> list[Finding]:
         if entity_name not in table_names:
             findings.append(Finding(
                 FindingCode.ENTITY_NOT_IN_SCHEMA,
-                "error",
                 f"Mapping references unknown entity: {entity_name}",
             ))
 
@@ -258,7 +251,6 @@ def check(vc: ValidationContext) -> list[Finding]:
         if table.name not in bundle.mapping.entities:
             findings.append(Finding(
                 FindingCode.UNMAPPED_SCHEMA_TABLE,
-                "error",
                 f"Schema table {table.name} has no mapping entry in "
                 "sharepoint-mapping.yaml (would be omitted from the deploy plan).",
             ))
@@ -268,7 +260,6 @@ def check(vc: ValidationContext) -> list[Finding]:
         if xref.entity not in table_names:
             findings.append(Finding(
                 FindingCode.UNKNOWN_ENTITY,
-                "error",
                 f"cross_site_reference_columns: entity {xref.entity} not in schema",
                 location=Location(Section.CROSS_SITE_REFERENCE_COLUMNS),
             ))
@@ -278,14 +269,12 @@ def check(vc: ValidationContext) -> list[Finding]:
         if col is None:
             findings.append(Finding(
                 FindingCode.CROSS_SITE_UNKNOWN_COLUMN,
-                "error",
                 f"cross_site_reference_columns: {xref.entity}.{xref.column} not in schema",
                 location=Location(Section.CROSS_SITE_REFERENCE_COLUMNS),
             ))
         elif col.ref is None:
             findings.append(Finding(
                 FindingCode.CROSS_SITE_COLUMN_HAS_NO_REF,
-                "error",
                 f"cross_site_reference_columns: {xref.entity}.{xref.column} has no ref:",
                 location=Location(Section.CROSS_SITE_REFERENCE_COLUMNS),
             ))
@@ -293,7 +282,6 @@ def check(vc: ValidationContext) -> list[Finding]:
             if col.unique:
                 findings.append(Finding(
                     FindingCode.CROSS_SITE_COLUMN_CANNOT_BE_UNIQUE,
-                    "error",
                     f"{xref.entity}.{xref.column}: a cross-site reference cannot "
                     "be unique. Its logical DBML column is replaced by generated "
                     "Abbreviation and SiteUrl fields, so the column-level unique "
@@ -308,7 +296,6 @@ def check(vc: ValidationContext) -> list[Finding]:
                 if len(generated) > 32:
                     findings.append(Finding(
                         FindingCode.CROSS_SITE_GENERATED_NAME_TOO_LONG,
-                        "error",
                         f"cross_site {xref.entity}.{xref.column}: generated "
                         f"name '{generated}' is {len(generated)} chars; "
                         f"SP internal-name limit is 32.",
@@ -316,7 +303,6 @@ def check(vc: ValidationContext) -> list[Finding]:
                 if any(col.name == generated and col.name != xref.column for col in table.columns):
                     findings.append(Finding(
                         FindingCode.CROSS_SITE_GENERATED_NAME_COLLIDES,
-                        "error",
                         f"cross_site {xref.entity}.{xref.column}: generated field "
                         f"{generated!r} collides with the declared DBML column "
                         f"{xref.entity}.{generated}.",
@@ -338,7 +324,6 @@ def check(vc: ValidationContext) -> list[Finding]:
             if len(index.columns) != 1:
                 findings.append(Finding(
                     FindingCode.COMPOSITE_INDEX_UNSUPPORTED,
-                    "error",
                     f"{ctx}: composite index {index.columns!r} is unsupported; "
                     "SharePoint deployment supports one column per DBML index.",
                 ))
@@ -354,7 +339,6 @@ def check(vc: ValidationContext) -> list[Finding]:
             if configured:
                 findings.append(Finding(
                     FindingCode.INDEX_SETTINGS_UNSUPPORTED,
-                    "error",
                     f"{ctx}: DBML index settings {configured!r} are unsupported by "
                     "SharePoint. Declare a bare column index; use the column's "
                     "[unique] setting when uniqueness is required.",
@@ -363,7 +347,6 @@ def check(vc: ValidationContext) -> list[Finding]:
         for duplicate in sorted({name for name in indexed if indexed.count(name) > 1}):
             findings.append(Finding(
                 FindingCode.DUPLICATE_INDEX_TARGET,
-                "error",
                 f"{entity_name}.indexes: duplicate index target {duplicate!r}.",
             ))
         # Unique fields carry an implicit SharePoint index and count toward
@@ -372,7 +355,6 @@ def check(vc: ValidationContext) -> list[Finding]:
         for duplicate in sorted(set(indexed) & unique_indexes):
             findings.append(Finding(
                 FindingCode.INDEX_DUPLICATES_UNIQUE_COLUMN,
-                "error",
                 f"{entity_name}.indexes: {duplicate!r} is already indexed by "
                 "its column [unique] setting; remove the redundant indexes entry.",
             ))
@@ -402,7 +384,6 @@ def check(vc: ValidationContext) -> list[Finding]:
                 )
             findings.append(Finding(
                 FindingCode.INDEX_LIMIT_EXCEEDED,
-                "error",
                 f"{entity_name}.indexes: {len(effective_indexes)} "
                 f"effective indexes exceed SharePoint's limit of 20. "
                 f"{len(declared)} declared in indexes {{ }}"
@@ -423,7 +404,6 @@ def check(vc: ValidationContext) -> list[Finding]:
             # consuming one of the twenty.
             findings.append(Finding(
                 FindingCode.INDEX_LIMIT_APPROACHING,
-                "warning",
                 f"{entity_name}.indexes: {len(effective_indexes)} of the 20 "
                 f"available indexes are already spoken for. SharePoint also "
                 f"creates indexes by itself -- opening a sorted view on an "
@@ -441,7 +421,6 @@ def check(vc: ValidationContext) -> list[Finding]:
                 )
                 findings.append(Finding(
                     FindingCode.INDEX_COLUMN_NOT_RENDERED,
-                    "error",
                     f"{entity_name}.indexes: {col_name!r} is not a "
                     f"rendered column of {entity_name}{hint}.",
                 ))
@@ -450,7 +429,6 @@ def check(vc: ValidationContext) -> list[Finding]:
             if column is not None and column.type in UNSUPPORTED_INDEX_TYPES:
                 findings.append(Finding(
                     FindingCode.INDEX_COLUMN_TYPE_UNINDEXABLE,
-                    "error",
                     f"{entity_name}.indexes: {col_name!r} is a "
                     f"{UNSUPPORTED_INDEX_TYPES[column.type]} column, which SharePoint "
                     f"cannot index.",
@@ -466,7 +444,6 @@ def check(vc: ValidationContext) -> list[Finding]:
         if watched_table is None:
             findings.append(Finding(
                 FindingCode.UNKNOWN_ENTITY,
-                "error",
                 f"watched_lists[{i}]: unknown entity {watched.entity!r}.",
                 location=Location(Section.WATCHED_LISTS),
             ))
@@ -477,7 +454,6 @@ def check(vc: ValidationContext) -> list[Finding]:
         if watched.column not in watched_cols:
             findings.append(Finding(
                 FindingCode.WATCHED_COLUMN_NOT_RENDERED,
-                "error",
                 f"watched_lists[{i}]: {watched.column!r} is not a rendered "
                 f"column of {watched.entity}.",
                 location=Location(Section.WATCHED_LISTS),
@@ -487,7 +463,6 @@ def check(vc: ValidationContext) -> list[Finding]:
         if pattern_table is None:
             findings.append(Finding(
                 FindingCode.UNKNOWN_ENTITY,
-                "error",
                 f"polymorphic_patterns[{i}]: unknown entity {pattern.list!r}.",
                 location=Location(Section.POLYMORPHIC_PATTERNS),
             ))
@@ -499,7 +474,6 @@ def check(vc: ValidationContext) -> list[Finding]:
             if col_name not in pattern_cols:
                 findings.append(Finding(
                     FindingCode.POLYMORPHIC_COLUMN_NOT_RENDERED,
-                    "error",
                     f"polymorphic_patterns[{i}]: {role} {col_name!r} is not a "
                     f"rendered column of {pattern.list}.",
                     location=Location(Section.POLYMORPHIC_PATTERNS),
@@ -508,7 +482,6 @@ def check(vc: ValidationContext) -> list[Finding]:
         if entity_name not in tables_by_name:
             findings.append(Finding(
                 FindingCode.UNKNOWN_ENTITY,
-                "error",
                 f"versioning.overrides: unknown entity {entity_name!r} -- the "
                 f"override is read by nobody, so the real list keeps the "
                 f"defaults.",
@@ -552,7 +525,6 @@ def check(vc: ValidationContext) -> list[Finding]:
             if formula is None:
                 findings.append(Finding(
                     FindingCode.CALCULATED_COLUMN_HAS_NO_FORMULA,
-                    "error",
                     f"{table.name}.{col.name}: calculated column has no "
                     f"formula -- add calculated_formulas.{table.name}."
                     f"{col.name} to the mapping.",
@@ -561,14 +533,12 @@ def check(vc: ValidationContext) -> list[Finding]:
             if not formula.startswith("="):
                 findings.append(Finding(
                     FindingCode.CALCULATED_FORMULA_MISSING_EQUALS,
-                    "error",
                     f"{table.name}.{col.name}: calculated formula must start "
                     f"with '='.",
                 ))
             if len(formula) > MAX_CALCULATED_FORMULA:
                 findings.append(Finding(
                     FindingCode.CALCULATED_FORMULA_TOO_LONG,
-                    "error",
                     f"{table.name}.{col.name}: calculated formula is "
                     f"{len(formula)} chars; SharePoint's limit is "
                     f"{MAX_CALCULATED_FORMULA}.",
@@ -581,14 +551,12 @@ def check(vc: ValidationContext) -> list[Finding]:
             if col.name in refs:
                 findings.append(Finding(
                     FindingCode.CALCULATED_FORMULA_SELF_REFERENCE,
-                    "error",
                     f"{table.name}.{col.name}: calculated formula references "
                     f"itself.",
                 ))
             for ref in sorted(refs - declared):
                 findings.append(Finding(
                     FindingCode.CALCULATED_FORMULA_UNKNOWN_COLUMN,
-                    "error",
                     f"{table.name}.{col.name}: calculated formula references "
                     f"[{ref}], which is not a rendered column of "
                     f"{table.name} -- SharePoint would reject the field "
@@ -615,7 +583,6 @@ def check(vc: ValidationContext) -> list[Finding]:
                     continue
                 findings.append(Finding(
                     FindingCode.CALCULATED_FORMULA_UNSUPPORTED_OPERAND,
-                    "error",
                     f"{table.name}.{col.name}: calculated formula references "
                     f"[{ref}], {description}. SharePoint refuses this operand "
                     f"when the calculated field is created -- HTTP 500, \"the "
@@ -636,7 +603,6 @@ def check(vc: ValidationContext) -> list[Finding]:
             for ref in sorted(refs & deferred_by_entity.get(table.name, set())):
                 findings.append(Finding(
                     FindingCode.CALCULATED_FORMULA_DEFERRED_LOOKUP,
-                    "error",
                     f"{table.name}.{col.name}: calculated formula references "
                     f"[{ref}], a lookup deferred to Phase 2 because its "
                     f"target is created later (a self-reference or a "
@@ -648,7 +614,6 @@ def check(vc: ValidationContext) -> list[Finding]:
             if col_name not in calc_columns_by_table.get(entity_name, set()):
                 findings.append(Finding(
                     FindingCode.FORMULA_TARGET_NOT_CALCULATED,
-                    "error",
                     f"calculated_formulas[{entity_name}]: {col_name!r} is not "
                     f"a calculated_text/calculated_number column of "
                     f"{entity_name}.",
@@ -670,7 +635,6 @@ def check(vc: ValidationContext) -> list[Finding]:
             if not ready:
                 findings.append(Finding(
                     FindingCode.CALCULATED_FORMULA_CYCLE,
-                    "error",
                     f"calculated_formulas[{entity_name}]: circular reference "
                     f"among {sorted(remaining)} -- no creation order can "
                     f"satisfy mutually dependent calculated columns.",
@@ -689,7 +653,6 @@ def check(vc: ValidationContext) -> list[Finding]:
             if col_name in calc_columns_by_table.get(table.name, set()):
                 findings.append(Finding(
                     FindingCode.INDEX_ON_CALCULATED_COLUMN,
-                    "error",
                     f"{table.name}.indexes: {col_name!r} is a "
                     f"calculated column -- SharePoint cannot index calculated "
                     f"columns.",

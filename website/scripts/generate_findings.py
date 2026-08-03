@@ -74,9 +74,13 @@ dbml-sharepoint explain unknown_column_type
 
 
 def render() -> str:
+    # Severity comes off the code, not from a column in this table. It is
+    # declared once, on the FindingCode member, so the published page cannot
+    # disagree with what the validator actually raises -- which it did, for
+    # `extension_reported`, while severity was a per-call-site argument.
     rows = [
-        f"| `{code}` | {help_.severity} | {help_.meaning} |"
-        for code, help_ in sorted(FINDING_HELP.items())
+        f"| `{code}` | {code.severity} | {meaning} |"
+        for code, meaning in sorted(FINDING_HELP.items())
     ]
     return PREAMBLE + "\n".join(rows) + "\n"
 
