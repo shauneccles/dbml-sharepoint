@@ -36,7 +36,9 @@ from dbml_sharepoint.model.mapping_loader import (
     MappingBundle,
     PermissionsConfig,
     Principal,
+    RetentionPolicy,
     RoleAssignment,
+    SiteGroup,
     load_mapping,
 )
 from dbml_sharepoint.model.parser import (
@@ -957,3 +959,170 @@ def test_validate_all_is_the_sum_of_its_parts() -> None:
         + extension.extra_validators(bundle, schema)
     )
     assert findings == expected
+
+
+# --- Rules that fired for nobody --------------------------------------------
+#
+# Second batch for #98. Each of these is a shipped, documented rule whose
+# construction site no test executed. They are grouped by the mapping section
+# they police rather than by module, because that is how somebody hitting one
+# will look for it.
+
+
+def test_an_entity_the_schema_does_not_declare_is_an_error() -> None:
+    """The mapping names a list the DBML never defines, so there is nothing
+    to provision it from."""
+    findings = validate_against_mapping(
+        make_schema(make_table("Risk")), make_bundle(entities=["Risk", "Ghost"]),
+    )
+
+    finding = only(findings, FindingCode.ENTITY_NOT_IN_SCHEMA)
+    assert finding.severity == "error"
+    assert "Ghost" in finding.message
+
+
+def test_a_cross_site_reference_to_an_unknown_column_is_an_error() -> None:
+    findings = validate_against_mapping(
+        make_schema(make_table("Risk")),
+        make_bundle(
+            entities=["Risk"],
+            cross_site_reference_columns=[CrossSiteRef(entity="Risk", column="Nope")],
+        ),
+    )
+
+    assert only(findings, FindingCode.CROSS_SITE_UNKNOWN_COLUMN).severity == "error"
+
+
+def test_a_cross_site_column_without_a_ref_is_an_error() -> None:
+    """A cross-site column is a lookup that happens to point off-site, so it
+    must still declare what it points AT."""
+    findings = validate_against_mapping(
+        make_schema(make_table("Risk", make_column("Owner"))),
+        make_bundle(
+            entities=["Risk"],
+            cross_site_reference_columns=[CrossSiteRef(entity="Risk", column="Owner")],
+        ),
+    )
+
+    assert only(findings, FindingCode.CROSS_SITE_COLUMN_HAS_NO_REF).severity == "error"
+
+
+def test_a_cross_site_column_whose_generated_name_would_be_too_long_is_an_error(
+) -> None:
+    """A cross-site column expands to `<name>Abbreviation` and `<name>SiteUrl`
+    at deploy time, so the DECLARED name can be legal while the generated one
+    is not -- which SharePoint would refuse at field creation."""
+    long_name = "A" * (MAX_INTERNAL_NAME - len("Abbreviation") + 1)
+    findings = validate_against_mapping(
+        make_schema(make_table("Risk", make_ref(long_name, "Risk.Id"))),
+        make_bundle(
+            entities=["Risk"],
+            cross_site_reference_columns=[
+                CrossSiteRef(entity="Risk", column=long_name),
+            ],
+        ),
+    )
+
+    finding = only(findings, FindingCode.CROSS_SITE_GENERATED_NAME_TOO_LONG)
+    assert finding.severity == "error"
+    assert "Abbreviation" in finding.message
+
+
+def test_a_group_owned_by_an_undeclared_group_is_an_error() -> None:
+    """`owner_group` must name a built-in or one this mapping declares;
+    anything else cannot be resolved when the group is created."""
+    findings = validate_against_mapping(
+        make_schema(make_table("Risk")),
+        make_bundle(
+            entities=["Risk"],
+            permissions=PermissionsConfig(
+                levels=[],
+                groups=[SiteGroup(
+                    name="APP_Owners", description="", owner_group="Nobody",
+                    allow_members_edit_membership=False,
+                    allow_request_to_join_leave=False,
+                    auto_accept_request_to_join_leave=False,
+                    only_allow_members_view_membership=False,
+                    require_empty_at_deploy=False,
+                    enroll_operator_during_deploy=False,
+                )],
+                default_policy=None,
+                overrides={},
+            ),
+        ),
+    )
+
+    finding = only(findings, FindingCode.UNKNOWN_OWNER_GROUP)
+    assert finding.severity == "error"
+    assert "Nobody" in finding.message
+
+
+def test_an_acl_naming_an_undeclared_group_is_an_error() -> None:
+    """A list ACL granting to a group nothing declares would fail at deploy
+    time, when `sitegroups/getbyname` cannot resolve it."""
+    findings = validate_against_mapping(
+        make_schema(make_table("Risk")),
+        make_bundle(
+            entities=["Risk"],
+            permissions=PermissionsConfig(
+                levels=[],
+                groups=[],
+                default_policy=ListPermissionPolicy(
+                    break_inheritance=True,
+                    assignments=[RoleAssignment(
+                        principal=Principal(kind="group", name="APP_Ghost"),
+                        level="Read",
+                    )],
+                    reconcile_mode="configured",
+                ),
+                overrides={},
+            ),
+        ),
+    )
+
+    finding = only(findings, FindingCode.UNKNOWN_PRINCIPAL_GROUP)
+    assert finding.severity == "error"
+    assert "APP_Ghost" in finding.message
+
+
+def test_a_display_name_override_longer_than_the_sp_limit_is_an_error() -> None:
+    """SharePoint caps a column's display title at 255 characters."""
+    findings = validate_against_mapping(
+        make_schema(make_table("Risk", make_column("Owner"))),
+        make_bundle(
+            entities=["Risk"],
+            # The whole display-name check is gated on a mode being declared,
+            # so a bundle without one skips it and the override is never read.
+            display_name_mode="title-case",
+            display_name_overrides={"Risk": {"Owner": "T" * 256}},
+        ),
+    )
+
+    assert only(findings, FindingCode.DISPLAY_TITLE_TOO_LONG).severity == "error"
+
+
+def test_a_list_default_naming_an_unknown_retention_policy_is_an_error() -> None:
+    """`retention_list_defaults` points at a policy by name; a name no
+    policy file declares cannot be applied.
+
+    A policy must exist for this to fire at all, and that is deliberate:
+    `_sources` gates the whole block on `bundle.retention_policies` so that a
+    bundle carrying list defaults with no policies loaded does not error on
+    every entry. The first version of this test asserted against that
+    decision and found the rule silent -- correctly.
+    """
+    findings = validate_against_mapping(
+        make_schema(make_table("Risk")),
+        make_bundle(
+            entities=["Risk"],
+            retention_policies={"three-years": RetentionPolicy(
+                name="three-years", description="", sp_label="3y",
+                retain_years=3, retain_days=0, trigger="created",
+            )},
+            retention_list_defaults={"Risk": "seven-years"},
+        ),
+    )
+
+    finding = only(findings, FindingCode.UNKNOWN_RETENTION_POLICY)
+    assert finding.severity == "error"
+    assert "seven-years" in finding.message

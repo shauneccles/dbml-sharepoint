@@ -131,14 +131,14 @@ exclude_also = [
   "raise NotImplementedError",
   "if __name__ == .__main__.:",
 ]
-# A ratchet, not a target. 94.71% branch coverage measured when this was
-# turned on, rounded down: it can only go up. Raise it when the real number
-# moves; never lower it to make a build pass.
+# A ratchet, not a target. Raised as the real number moves, never lowered to
+# make a build pass. 94.71% when coverage was turned on; 95.25% once the
+# unreached validator rules got tests (#98), so this is 95.
 #
 # Deliberately NOT 100. A number that can only be held by writing tests for
 # unreachable defensive branches buys nothing and teaches people to write
 # tests that assert nothing, which is worse than the gap it closed.
-fail_under = 94
+fail_under = 95
 
 [tool.pytest.ini_options]
 testpaths = ["test"]

@@ -4,17 +4,21 @@
 import datetime as dt
 
 import pytest
+from _findings import only
 from _paths import MANUAL
 
+from dbml_sharepoint.analysis import conditions
 from dbml_sharepoint.analysis.conditions import (
     CAML,
     CAPABILITIES,
     EXPRESSION,
+    MAX_DEPTH,
     MAX_LEAVES,
     NEGATION,
     SYSTEM_COLUMN_TYPES,
     VALIDATION,
     condition_fields,
+    condition_findings,
     describe,
     measure_tree,
     normalise,
@@ -23,6 +27,7 @@ from dbml_sharepoint.analysis.conditions import (
     to_validation,
     validate_condition,
 )
+from dbml_sharepoint.analysis.findings import Finding, FindingCode, Location, Section
 from dbml_sharepoint.model.conditions import Condition, Group, Leaf, parse_condition
 
 
@@ -1362,3 +1367,135 @@ def test_a_person_null_test_still_refuses_an_accessor() -> None:
 def test_a_person_comparison_still_needs_an_accessor() -> None:
     """Unchanged: only the null tests are exempt."""
     assert "needs 'property'" in _problems([{"field": "Owner", "op": "neq", "value": ""}])[0]
+
+
+# --- Refusals nothing reached ------------------------------------------------
+#
+# Part of #98. `condition_findings` is the classified-Findings entry point the
+# checks use; driving it directly is the smallest thing that reaches these.
+
+
+def _findings(
+    condition: Condition,
+    *,
+    target: str = CAML,
+    types: dict[str, str] | None = None,
+    lookups: set[str] | None = None,
+) -> list[Finding]:
+    resolved = types if types is not None else {"Status": "nvarchar"}
+    return condition_findings(
+        condition,
+        target=target,
+        rendered=set(resolved),
+        types=resolved,
+        lookups=lookups or set(),
+        at=Location(Section.VIEWS, entity="Risk", view="Open"),
+    )
+
+
+def test_a_measure_other_than_length_is_refused() -> None:
+    findings = _findings(Group("all_of", (Leaf("Status", "eq", "x", measure="size"),)))
+
+    assert only(findings, FindingCode.CONDITION_MEASURE_UNKNOWN).severity == "error"
+
+
+def test_in_with_a_scalar_value_is_refused() -> None:
+    """`in` is a membership test, so a bare scalar is a declaration mistake
+    rather than a set of one."""
+    findings = _findings(Group("all_of", (Leaf("Status", "in", "Open"),)))
+
+    assert only(findings, FindingCode.CONDITION_VALUE_NOT_A_LIST).severity == "error"
+
+
+def test_a_condition_nested_past_the_depth_ceiling_is_refused() -> None:
+    """Built from MAX_DEPTH rather than a literal, so the test cannot come to
+    disagree with the ceiling it pins."""
+    node: Condition = Group("all_of", (Leaf("Status", "eq", "Open"),))
+    for _ in range(MAX_DEPTH):
+        node = Group("all_of", (node,))
+
+    assert only(_findings(node), FindingCode.CONDITION_TOO_DEEP).severity == "error"
+
+
+@pytest.mark.parametrize("column_type", ["date", "datetime", "calculated_date"])
+@pytest.mark.parametrize("op", ["contains", "begins_with"])
+def test_a_substring_test_against_a_sentinel_is_always_refused(
+    op: str, column_type: str,
+) -> None:
+    """A substring test against `today`/`now` never renders, whichever rule
+    catches it.
+
+    Asserting the BEHAVIOUR rather than the code, deliberately.
+    `CONDITION_SENTINEL_WITH_A_SUBSTRING_OPERATOR` exists for exactly this
+    input and is never the rule that fires: every sentinel column type is a
+    date type, every date type is in `_NON_TEXT_FOR_SUBSTRING`, and that
+    guard runs first on both the validation and the render path. Measured
+    across all four text operators, three date types, four sentinel
+    spellings and three targets -- 144 combinations, zero reaching it.
+
+    So the refusal is real and pinned here; which rule owns it is a live
+    question for that dead branch, and not something this test should
+    pretend to settle.
+    """
+    with pytest.raises(ValueError):
+        to_caml(
+            Group("all_of", (Leaf("Due", op, "today"),)), {"Due": column_type},
+        )
+
+
+def test_a_validation_formula_cannot_read_a_lookup() -> None:
+    """Lookups are int-typed in DBML, so the type map alone cannot see them;
+    the lookup set is what tells the check they are not really numbers."""
+    findings = _findings(
+        Group("all_of", (Leaf("Project", "eq", 1),)),
+        target=VALIDATION,
+        types={"Project": "int"},
+        lookups={"Project"},
+    )
+
+    assert only(
+        findings, FindingCode.CONDITION_LOOKUP_UNSUPPORTED_BY_TARGET,
+    ).severity == "error"
+
+
+# The last two refusals in this module cannot be reached by anything you can
+# DECLARE today, and that is the design rather than a gap:
+#
+#   * `DISABLED_PENDING_PROBE` is empty -- no operator is currently withheld
+#     pending a live-site probe.
+#   * the only operators missing from any target's CAPABILITIES are
+#     `not_contains`/`not_begins_with` on CAML, and the negative-text guard
+#     above raises its own, far more specific, refusal before this one.
+#
+# They exist so that populating that table, or adding an operator to the
+# grammar that some target cannot render, fails CLOSED instead of emitting
+# something nobody has verified. A guard whose first exercise is the day it
+# matters is a guard nobody has tested, so both are driven here by making the
+# situation they were written for real.
+
+
+def test_an_operator_withheld_pending_a_probe_is_refused(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        conditions, "DISABLED_PENDING_PROBE", {CAML: frozenset({"contains"})},
+    )
+
+    findings = _findings(Group("all_of", (Leaf("Status", "contains", "x"),)))
+
+    assert only(findings, FindingCode.CONDITION_OPERATOR_UNVERIFIED).severity == "error"
+
+
+def test_an_operator_the_target_cannot_render_is_refused(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`eq` is dropped from CAML's capabilities rather than inventing an
+    operator: a new grammar member would be rejected earlier as unknown, so it
+    would exercise a different rule and prove nothing about this one."""
+    monkeypatch.setitem(
+        CAPABILITIES, CAML, frozenset(CAPABILITIES[CAML] - {"eq"}),
+    )
+
+    findings = _findings(Group("all_of", (Leaf("Status", "eq", "Open"),)))
+
+    assert only(findings, FindingCode.CONDITION_OPERATOR_UNRENDERABLE).severity == "error"
