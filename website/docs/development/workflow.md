@@ -76,6 +76,16 @@ uv run j2lint --ignore jinja-statements-indentation single-statement-per-line --
   uv run python website/scripts/generate_api.py
   ```
 
+- **Findings reference.** If a `FindingCode` or its entry in
+  `analysis/finding_help.py` changed, regenerate the catalogue page:
+
+  ```bash
+  uv run python website/scripts/generate_findings.py
+  ```
+
+  That module is the source of truth for what a code means — the page and
+  `dbml-sharepoint explain` both read it, so never edit the page directly.
+
 ## Adding things
 
 **A deploy phase:** add a `PhaseStep` to `DEPLOY_GROUPS` in `analysis/phases.py`

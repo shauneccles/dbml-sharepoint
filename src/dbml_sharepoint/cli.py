@@ -2,7 +2,9 @@
 
 import datetime as dt
 from contextlib import suppress
+from difflib import get_close_matches
 from pathlib import Path
+from textwrap import wrap
 from typing import Any, NoReturn
 from urllib.parse import urlparse
 
@@ -10,6 +12,7 @@ import typer
 import yaml
 from pyparsing.exceptions import ParseBaseException
 
+from dbml_sharepoint.analysis.finding_help import FINDING_HELP
 from dbml_sharepoint.analysis.findings import Finding
 from dbml_sharepoint.analysis.validator import validate_all
 from dbml_sharepoint.bundle import (
@@ -426,6 +429,55 @@ def execute_build(
         raise typer.Exit(code=2) from exc
     typer.echo(message)
     _echo_warnings(findings)
+
+
+@app.command()
+def explain(
+    code: str = typer.Argument(
+        "",
+        help="A finding code, as printed beside a build's findings. "
+        "Omit to list every code.",
+    ),
+) -> None:
+    """Say what a finding code means, without leaving the terminal.
+
+    The code is a finding's identity -- stable, and what the catalogue is
+    keyed by -- while the message beside it is prose that may be reworded in
+    any release. So the code is the only part worth looking up, and until
+    now the only place to look it up was a website.
+
+    Reads `FINDING_HELP`, which ships inside the package. The published
+    reference at `reference/findings.md` is generated from the same data, so
+    the two cannot disagree.
+    """
+    if not code:
+        for member in sorted(FINDING_HELP):
+            typer.echo(f"  {FINDING_HELP[member].severity:<7}  {member}")
+        typer.echo(
+            f"\n{len(FINDING_HELP)} codes. "
+            "Run `dbml-sharepoint explain <code>` for any one of them.",
+        )
+        return
+
+    # Tolerate the token exactly as a build prints it. Findings render as
+    # `[ERROR] unknown_column_type: Project.Sponsor: ...`, and the obvious
+    # thing to do is select the code and paste it -- which brings the colon.
+    wanted = code.strip().rstrip(":").lower()
+    found = next((c for c in FINDING_HELP if str(c) == wanted), None)
+    if found is None:
+        near = get_close_matches(wanted, [str(c) for c in FINDING_HELP], n=3, cutoff=0.6)
+        suggestion = f" Did you mean: {', '.join(near)}?" if near else ""
+        typer.echo(
+            f"No finding code {wanted!r}.{suggestion}\n"
+            "Run `dbml-sharepoint explain` with no argument to list them all.",
+            err=True,
+        )
+        raise typer.Exit(code=2)
+
+    entry = FINDING_HELP[found]
+    typer.echo(f"{found}  [{entry.severity}]\n")
+    for line in wrap(entry.meaning, width=76):
+        typer.echo(line)
 
 
 @app.command()

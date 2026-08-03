@@ -108,26 +108,19 @@ def test_none_of_names_the_offender() -> None:
                 FindingCode.UNKNOWN_ENTITY)
 
 
-def test_every_code_is_documented() -> None:
-    """The enum is the rule catalogue, so the catalogue has to be readable.
-
-    A code with no row is a rule nobody can look up. A row with no code is a
-    rule that no longer exists and will mislead the next reader. Four agents
-    classified 194 rules across disjoint modules and every one of them
-    maintained this file by hand; nothing until now checked that they agreed.
-    """
-    import re
-
-    doc = PACKAGE.parent.parent / "website" / "docs" / "reference" / "findings.md"
-    rows = {
-        m.group(1)
-        for m in re.finditer(
-            r"^\| `([a-z0-9_]+)` \|", doc.read_text(encoding="utf-8"), re.MULTILINE,
-        )
-    }
-    declared = {str(c) for c in FindingCode}
-    assert declared - rows == set(), f"undocumented: {sorted(declared - rows)}"
-    assert rows - declared == set(), f"stale rows: {sorted(rows - declared)}"
+# `test_every_code_is_documented` used to live here. It read
+# `website/docs/reference/findings.md`, regex-matched row-shaped lines and
+# compared that set of codes against `FindingCode` in both directions.
+#
+# It passed for as long as the page was unreadable. The file had lost every
+# blank line, grown a second `# ` title and an orphaned `sidebar_position: 4`
+# in its body, so all 194 rules rendered as one run-on paragraph instead of a
+# table -- and none of that changes the SET of codes on row-shaped lines. The
+# test checked the data and never the artifact, which is the whole lesson.
+#
+# The catalogue now lives in `analysis/finding_help.py`, the page is generated
+# from it, and `test_finding_help.py` guards the pair by byte equality against
+# the generator's own output. That cannot be satisfied by a broken document.
 
 
 def test_no_finding_is_unclassified() -> None:
