@@ -404,3 +404,23 @@ class Finding:
     def severity(self) -> Severity:
         """How bad this is -- declared once, on the code."""
         return self.code.severity
+
+    @property
+    def detail(self) -> str:
+        """The code and the message, for anything that shows a finding.
+
+        The code is the identity and the published catalogue is keyed by it,
+        but only the message used to reach the terminal and the manifest --
+        and the message is prose that is free to be reworded in any commit.
+        So the operator was shown the one part of a finding that is
+        deliberately not searchable, and given nothing to carry them to the
+        catalogue entry.
+
+        One property rather than a format string at each site: the CLI's
+        error path, the CLI's warning path and the manifest template all
+        show findings, and three spellings of "how a finding looks" drift.
+        The severity marker stays with the caller because it legitimately
+        differs by medium -- `**[WARNING]**` in markdown, `[WARNING]` on a
+        terminal.
+        """
+        return f"{self.code}: {self.message}"

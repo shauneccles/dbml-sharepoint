@@ -28,6 +28,9 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO_ROOT / "src"))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from generate_api import write_page  # noqa: E402
 
 from dbml_sharepoint.analysis.finding_help import FINDING_HELP  # noqa: E402
 
@@ -86,10 +89,12 @@ def render() -> str:
 
 
 def main() -> None:
-    # newline="\n" for the reason generate_api.write_page documents: text mode
-    # emits CRLF on Windows, which reports the whole page as modified on every
-    # regeneration and buries the one real change.
-    PAGE.write_text(render(), encoding="utf-8", newline="\n")
+    # Through the shared writer rather than repeating its options. They are
+    # the same options today, which is precisely the problem: a fix made in
+    # `write_page` would not reach a second call site that had copied them,
+    # and this repository has already had exactly that happen with
+    # `write_text` and CRLF. One writer, one place to change it.
+    write_page(PAGE, render())
     print(f"Generated {PAGE} with {len(FINDING_HELP)} rule(s)")
 
 

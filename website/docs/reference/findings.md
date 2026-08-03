@@ -100,7 +100,7 @@ dbml-sharepoint explain unknown_column_type
 | `demo_column_not_writable` | error | A demo row writes a column the deploy does not create, or writes `Id`. |
 | `demo_date_value_invalid` | error | A demo row's date value is neither `today+N`/`today-N` nor a real ISO calendar date. |
 | `demo_enum_value_unknown` | error | A demo row's value is not a member of the column's enum. |
-| `demo_hyperlink_address_invalid` | error | A demo row's hyperlink address is not a non-empty string. Checked as a string, not stringified — `str(None)` is `"None"`, which would deploy as a link pointing at the word None. |
+| `demo_hyperlink_address_invalid` | error | A demo row's hyperlink address is not a non-empty string. Checked as a string, not stringified -- `str(None)` is `"None"`, which would deploy as a link pointing at the word None. |
 | `demo_hyperlink_object_invalid` | error | A demo row's hyperlink object value is not `{url: <address>, description: <label>}` with `description` optional. |
 | `demo_object_value_invalid` | error | A demo row's object value is not exactly `{demo_ref: <key>}`. |
 | `demo_person_value_unsupported` | error | A demo row writes a person column with something other than `"@me"`, the deploying operator. |
@@ -108,13 +108,13 @@ dbml-sharepoint explain unknown_column_type
 | `demo_ref_on_non_lookup` | error | A demo row uses `demo_ref` on a column that is not a lookup. |
 | `demo_ref_target_mismatch` | error | A demo row's `demo_ref` resolves to a row of a different entity from the one the lookup targets. |
 | `demo_ref_unknown_key` | error | A demo row's `demo_ref` names a key no demo row declares. |
-| `demo_rows_on_document_library` | error | `demo_items:` seeds a `DocumentLibrary`. A library's items are files and seeding posts to `/items`, which SharePoint refuses outright — so the paste fails in front of whoever was being shown the demo. |
+| `demo_rows_on_document_library` | error | `demo_items:` seeds a `DocumentLibrary`. A library's items are files and seeding posts to `/items`, which SharePoint refuses outright -- so the paste fails in front of whoever was being shown the demo. |
 | `demo_title_missing_marker` | error | A demo row's `Title` does not start with `[DEMO] `, the marker the teardown trusts to tell demo rows from real records. |
 | `demo_value_on_calculated_column` | error | A demo row writes a calculated column. Set its inputs instead. |
 | `display_column_not_rendered` | error | A lookup target's `display_column` names a column the deploy never creates, so the automatic index would be created on a field that does not exist. |
 | `display_column_type_unindexable` | error | A lookup target's `display_column` is a type SharePoint cannot index. The deploy sets `Indexed=true`, reads it back and aborts part-way through when it did not stick. |
 | `display_title_too_long` | error | A display title exceeds SharePoint's 255-character bound. |
-| `document_library_unsupported` | error | An entity declares `kind: DocumentLibrary`. A library's items are files and this tool writes list rows, so the kind is refused outright — see issue #14. |
+| `document_library_unsupported` | error | An entity declares `kind: DocumentLibrary`. A library's items are files and this tool writes list rows, so the kind is refused outright -- see issue #14. |
 | `duplicate_column_name` | error | A table declares the same column name twice. |
 | `duplicate_demo_key` | error | Two demo rows share a key. Keys are global across entities because `demo_ref` resolves against all of them. |
 | `duplicate_display_title` | error | Two columns of one entity resolve to the same display title, making them indistinguishable on every form and view. |
@@ -123,7 +123,7 @@ dbml-sharepoint explain unknown_column_type
 | `duplicate_index_target` | error | One table's `indexes { }` names the same column twice. |
 | `duplicate_permission_level_name` | error | Two `permission_levels` entries share a name case- insensitively, which SharePoint resolves to one level. |
 | `duplicate_table_name` | error | Two tables share a name. |
-| `duplicate_view_title` | error | Two views on one entity share a title, or differ only in case — SharePoint treats those as one view. |
+| `duplicate_view_title` | error | Two views on one entity share a title, or differ only in case -- SharePoint treats those as one view. |
 | `duplicate_view_url_slug` | error | Two view titles collapse to the same `.aspx` URL slug, so the two view pages would fight over one page. |
 | `empty_display_title` | error | A display-name override resolves to an empty title. |
 | `empty_enum` | warning | An enum declares no members. |
@@ -137,7 +137,7 @@ dbml-sharepoint explain unknown_column_type
 | `field_set_empty` | error | A field set declares no columns. |
 | `field_set_name_has_marker` | error | A field set's name contains `@`, which is the marker a view's `fields` uses to reference a set. |
 | `field_set_unreferenced` | warning | A field set is declared but no view on that entity expands it. |
-| `form_columns_in_no_section` | warning | Columns are referenced by no form body section. SharePoint appends them to the last section, so the form still renders — but the declared arrangement stops being the deployed one. |
+| `form_columns_in_no_section` | warning | Columns are referenced by no form body section. SharePoint appends them to the last section, so the form still renders -- but the declared arrangement stops being the deployed one. |
 | `form_part_references_calculated_column` | error | A form header or footer references a calculated column. Calculated columns resolve to an empty string there, so the part renders blank with no error anywhere. |
 | `form_section_entirely_hidden` | error | Every column in a form body section is declared `new: false` and `existing: false`, so the section renders as a bare heading. Not asserted of the last section, which is SharePoint's documented catch-all. |
 | `form_section_field_not_rendered` | error | A form body section names a field the entity does not render. |
@@ -151,13 +151,13 @@ dbml-sharepoint explain unknown_column_type
 | `hide_is_unnecessary` | warning | `hide_from_all_items` is set on an entity whose `All Items` view is already within the join ceiling with nothing hidden. |
 | `hide_of_cross_site_reference` | error | `hide_from_all_items` names a cross-site reference, which expands to a Choice + URL pair and costs no join operation. |
 | `hide_of_non_join_bearing_column` | error | `hide_from_all_items` names a column that costs no join operation; only a join-bearing column may be hidden. |
-| `hide_of_unrendered_column` | error | `hide_from_all_items` names a column the generated `All Items` view does not render — usually a typo. |
+| `hide_of_unrendered_column` | error | `hide_from_all_items` names a column the generated `All Items` view does not render -- usually a typo. |
 | `hide_without_all_items_view` | error | `hide_from_all_items` names a column on an entity for which no `All Items` view is generated at all, so the key would silently do nothing. |
 | `illegal_column_name_character` | error | A column name contains a character SharePoint rejects. |
 | `index_column_not_rendered` | error | An `indexes { }` entry names a column the deploy never creates. |
 | `index_column_type_unindexable` | error | An `indexes { }` entry names a column of a type SharePoint cannot index. |
 | `index_duplicates_unique_column` | error | An `indexes { }` entry names a column that already carries an implicit index from its `[unique]` setting. |
-| `index_limit_approaching` | warning | A list is at 18 or 19 of its 20 indexes. SharePoint creates indexes by itself — opening a sorted view on an unindexed column adds one — and those are invisible to this build, so leave headroom. |
+| `index_limit_approaching` | warning | A list is at 18 or 19 of its 20 indexes. SharePoint creates indexes by itself -- opening a sorted view on an unindexed column adds one -- and those are invisible to this build, so leave headroom. |
 | `index_limit_exceeded` | error | A list's effective indexes exceed SharePoint's limit of 20. The message names the implicit contributors, which are the ones an author cannot count. |
 | `index_on_calculated_column` | error | An `indexes { }` entry names a calculated column. SharePoint accepts the flag and reads it back false. |
 | `index_settings_unsupported` | error | A DBML index carries `name`, `unique`, `type`, `pk` or `note`. SharePoint exposes none of them, so declare a bare column index. |
@@ -193,7 +193,7 @@ dbml-sharepoint explain unknown_column_type
 | `row_limit_out_of_range` | error | A view's `row_limit` is outside 1-5000. |
 | `style_calculated_type_mismatch` | error | `calculated: true` is set on a style whose column is not the `calculated_*` type that style expects. |
 | `style_map_key_not_in_enum` | error | A `severity` or `pill` map names a choice the column's enum does not contain. |
-| `style_on_boolean_matches_nothing` | error | A `severity` or `pill` style sits on a Yes/No column. Both compare `@currentField` against quoted strings, so every branch is false and the cell renders unstyled — silently. |
+| `style_on_boolean_matches_nothing` | error | A `severity` or `pill` style sits on a Yes/No column. Both compare `@currentField` against quoted strings, so every branch is false and the cell renders unstyled -- silently. |
 | `style_requires_calculated` | error | A `severity`, `data-bar` or `overdue-date` style sits on the matching `calculated_*` column but does not set `calculated: true`, so SharePoint's typed formatter value is never decoded. |
 | `superseded_by_is_itself_retired` | error | A `superseded_by` names a column that is itself retired. |
 | `superseded_by_names_the_retired_column` | error | A `superseded_by` names the retired column itself. |

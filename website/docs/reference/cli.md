@@ -69,7 +69,7 @@ Measured, because a CI gate keys on these:
 |---|---|
 | `0` | Success, including a `--dry-run` that found no errors |
 | `1` | The build refused: validation errors, or an unreadable/invalid input file |
-| `2` | Usage error — a missing required option, or a `--site-role` the mapping does not declare |
+| `2` | Usage error — a missing required option, a `--site-role` the mapping does not declare, or an `explain` code that is not in the catalogue |
 
 A validation failure exits **1**, not 2. `2` is the usage-error code
 `typer` raises before the pipeline runs at all. Gate on non-zero rather

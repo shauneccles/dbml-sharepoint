@@ -82,10 +82,13 @@ def _undeployable(context: str, column: str) -> str:
     )
 
 # DBML scalar types that we recognise. Anything else must be an enum.
-KNOWN_SCALARS = frozenset({
-    "int", "number", "nvarchar", "longtext", "richtext", "person", "date", "datetime",
-    "boolean", "hyperlink",
-})
+#
+# Re-exported from typemap for the same reason CALCULATED_TYPES below is:
+# `map_column` is what actually has to recognise a type, so that module is
+# where a new scalar cannot be forgotten. Declaring it here as well gave the
+# check and the mapper separate ideas of what is supported, with nothing
+# comparing them.
+KNOWN_SCALARS = typemap.KNOWN_SCALARS
 
 # SP.FieldCalculated column types, re-exported from the one place that
 # enumerates them (a calculated type without an OutputType cannot deploy,
@@ -332,7 +335,8 @@ def _check_column(
     ):
         findings.append(Finding(
             FindingCode.UNKNOWN_COLUMN_TYPE,
-            f"{table}.{name}: unknown type {col.type!r}.",
+            f"{table}.{name}: unknown type {col.type!r}. "
+            + typemap.describe_unknown_type(col.type, enums=enums),
         ))
 
     if col.type in enums and col.default is not None:

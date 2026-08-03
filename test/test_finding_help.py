@@ -233,5 +233,7 @@ def test_explain_lists_every_code_when_asked_for_nothing() -> None:
 
     assert result.exit_code == 0, result.output
     flat = " ".join(result.output.split())
-    for code in ("unknown_column_type", "unique_without_not_null"):
-        assert code in flat
+    # Every code, not a sample. The command's contract is that it lists the
+    # catalogue, and a sample of two passes while it omits the other 193.
+    missing = sorted(str(code) for code in FindingCode if str(code) not in flat)
+    assert not missing, f"explain did not list: {missing}"

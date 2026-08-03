@@ -158,7 +158,7 @@ def test_every_code_can_actually_be_produced() -> None:
     rather than an allowlist. Recorded so the gap is known rather than implied
     away by this test's name.
     """
-    import re
+    import ast
 
     # `finding_help.py` is excluded for the same reason `findings.py` is, and
     # the reason is sharper: the catalogue names EVERY code by construction,
@@ -167,12 +167,32 @@ def test_every_code_can_actually_be_produced() -> None:
     # but the next catalogued-and-never-raised code would pass in silence,
     # which is precisely the lie this test exists to catch.
     declarations_not_uses = {"findings.py", "finding_help.py"}
-    src = "\n".join(
-        p.read_text(encoding="utf-8")
-        for p in PACKAGE.rglob("*.py")
-        if p.name not in declarations_not_uses
-    )
-    referenced = set(re.findall(r"FindingCode\.([A-Z][A-Z0-9_]*)", src))
+
+    # Parsed, not regex-matched over the raw text: a code named in a comment
+    # or a docstring is not a construction site, and the text scan counted
+    # both.
+    #
+    # NOT narrowed to literal `Finding(...)` calls, which is the obvious next
+    # step and is wrong. `analysis/conditions.py` routes every refusal through
+    # `_reject(code, ...)` and builds its findings in a comprehension, so a
+    # call-shaped check reports 39 of the 193 codes as unconstructed --
+    # measured, and the same 39 that misled the first attempt at #98. An
+    # executable reference to the code is the honest signal at this level;
+    # whether the rule FIRES is a runtime question, and the paragraph above
+    # says so.
+    referenced: set[str] = set()
+    for path in PACKAGE.rglob("*.py"):
+        if path.name in declarations_not_uses:
+            continue
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if (
+                isinstance(node, ast.Attribute)
+                and isinstance(node.value, ast.Name)
+                and node.value.id == "FindingCode"
+            ):
+                referenced.add(node.attr)
+
     declared = {c.name for c in FindingCode}
 
     # Raised by an extension's own validators, never by the core -- see the
