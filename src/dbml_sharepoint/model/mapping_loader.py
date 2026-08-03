@@ -21,7 +21,7 @@ import yaml
 
 from dbml_sharepoint.analysis import styles
 from dbml_sharepoint.analysis.typemap import TOTAL_FUNCTIONS
-from dbml_sharepoint.model._keys import _reject_unknown_keys
+from dbml_sharepoint.model._keys import _reject_unknown_keys, _require_mapping
 from dbml_sharepoint.model._mapping_types import (
     _REMOVED_SECTIONS,
     ENTITY_KINDS,
@@ -179,7 +179,7 @@ def load_mapping(mapping_path: Path) -> MappingBundle:
     base_dir = mapping_path.parent
 
     entities = {}
-    for name, spec in raw["entities"].items():
+    for name, spec in _require_mapping(raw["entities"], "entities").items():
         _reject_unknown_keys(spec, _ENTITY_KEYS, f"entities.{name}")
         entities[name] = EntityMapping(
             name=name,
@@ -227,7 +227,9 @@ def load_mapping(mapping_path: Path) -> MappingBundle:
     )
     # Overrides reach jsgen/reportgen/assessgen as a RAW dict and are read
     # there with bool()/int(), so their values were never checked anywhere.
-    for override_entity, override in (versioning.get("overrides") or {}).items():
+    for override_entity, override in _require_mapping(
+        versioning.get("overrides"), "versioning.overrides",
+    ).items():
         _check_versioning_values(override or {}, f"versioning.overrides.{override_entity}")
 
     watched = []
@@ -236,7 +238,7 @@ def load_mapping(mapping_path: Path) -> MappingBundle:
         watched.append(WatchedList(entity=item["entity"], column=item["column"]))
 
     enum_choices, enum_source_paths = _load_enum_choices(
-        base_dir, raw.get("enum_sources") or {},
+        base_dir, _require_mapping(raw.get("enum_sources"), "enum_sources"),
     )
 
     retention_source = raw.get("retention_policies_source")
@@ -247,7 +249,9 @@ def load_mapping(mapping_path: Path) -> MappingBundle:
         retention_policies, retention_list_defaults = {}, {}
 
     extension = raw.get("extension")
-    extensions_block: dict[str, Any] = raw.get("extensions") or {}
+    extensions_block: dict[str, Any] = _require_mapping(
+        raw.get("extensions"), "extensions",
+    )
 
     permissions_config = _parse_permissions(raw)
 
@@ -258,8 +262,12 @@ def load_mapping(mapping_path: Path) -> MappingBundle:
     style_theme = styles.parse_theme(raw.get("style_theme"), "style_theme")
     column_formatting: dict[str, dict[str, dict[str, Any]]] = {}
     column_style_specs: dict[str, dict[str, dict[str, Any]]] = {}
-    for cf_entity, cf_cols in (raw.get("column_formatting") or {}).items():
-        for cf_col, cf_value in (cf_cols or {}).items():
+    for cf_entity, cf_cols in _require_mapping(
+        raw.get("column_formatting"), "column_formatting",
+    ).items():
+        for cf_col, cf_value in _require_mapping(
+            cf_cols, f"column_formatting.{cf_entity}",
+        ).items():
             cf_ctx = f"column_formatting.{cf_entity}.{cf_col}"
             if isinstance(cf_value, dict) and "style" in cf_value:
                 column_style_specs.setdefault(cf_entity, {})[cf_col] = dict(cf_value)
@@ -278,7 +286,7 @@ def load_mapping(mapping_path: Path) -> MappingBundle:
                 _parse_view(item, f"views.{entity}[{i}]", base_dir)
                 for i, item in enumerate(items or [])
             ]
-            for entity, items in (raw.get("views") or {}).items()
+            for entity, items in _require_mapping(raw.get("views"), "views").items()
         },
         field_sets,
     )
@@ -309,16 +317,27 @@ def load_mapping(mapping_path: Path) -> MappingBundle:
         extension=extension,
         permissions=permissions_config,
         calculated_formulas={
-            entity: {col: str(formula) for col, formula in (cols or {}).items()}
-            for entity, cols in (raw.get("calculated_formulas") or {}).items()
+            entity: {
+                col: str(formula)
+                for col, formula in _require_mapping(
+                    cols, f"calculated_formulas.{entity}",
+                ).items()
+            }
+            for entity, cols in _require_mapping(
+                raw.get("calculated_formulas"), "calculated_formulas",
+            ).items()
         },
         form_visibility={
             entity: _parse_form_visibility(block, f"form_visibility.{entity}")
-            for entity, block in (raw.get("form_visibility") or {}).items()
+            for entity, block in _require_mapping(
+                raw.get("form_visibility"), "form_visibility",
+            ).items()
         },
         column_validation={
             entity: _parse_column_validation(block, f"column_validation.{entity}")
-            for entity, block in (raw.get("column_validation") or {}).items()
+            for entity, block in _require_mapping(
+                raw.get("column_validation"), "column_validation",
+            ).items()
         },
         views=expanded_views,
         field_sets=field_sets,
@@ -327,12 +346,24 @@ def load_mapping(mapping_path: Path) -> MappingBundle:
                 _parse_demo_item(item, f"demo_items.{entity}[{i}]")
                 for i, item in enumerate(items or [])
             ]
-            for entity, items in (raw.get("demo_items") or {}).items()
+            for entity, items in _require_mapping(
+                raw.get("demo_items"), "demo_items",
+            ).items()
         },
         display_name_mode=_parse_display_name_mode(raw),
         display_name_overrides={
-            entity: {col: str(name) for col, name in (cols or {}).items()}
-            for entity, cols in ((raw.get("display_names") or {}).get("overrides") or {}).items()
+            entity: {
+                col: str(name)
+                for col, name in _require_mapping(
+                    cols, f"display_names.overrides.{entity}",
+                ).items()
+            }
+            for entity, cols in _require_mapping(
+                _require_mapping(
+                    raw.get("display_names"), "display_names",
+                ).get("overrides"),
+                "display_names.overrides",
+            ).items()
         },
         column_formatting=column_formatting,
         column_style_specs=column_style_specs,
@@ -340,15 +371,21 @@ def load_mapping(mapping_path: Path) -> MappingBundle:
             entity: _parse_form_formatting(
                 base_dir, parts, f"form_formatting.{entity}",
             )
-            for entity, parts in (raw.get("form_formatting") or {}).items()
+            for entity, parts in _require_mapping(
+                raw.get("form_formatting"), "form_formatting",
+            ).items()
         },
         list_validation={
             entity: _parse_list_validation(rule, f"list_validation.{entity}")
-            for entity, rule in (raw.get("list_validation") or {}).items()
+            for entity, rule in _require_mapping(
+                raw.get("list_validation"), "list_validation",
+            ).items()
         },
         retired_columns={
             entity: _parse_retired_columns(cols, f"retired_columns.{entity}")
-            for entity, cols in (raw.get("retired_columns") or {}).items()
+            for entity, cols in _require_mapping(
+                raw.get("retired_columns"), "retired_columns",
+            ).items()
         },
         seal_columns=_optional_bool(raw, "seal_columns", "mapping"),
         prevent_list_deletion=_optional_bool(raw, "prevent_list_deletion", "mapping"),
@@ -715,7 +752,7 @@ def _parse_field_sets(raw_sets: Any) -> dict[str, dict[str, list[str]]]:
     should hand the operator a manifest full of findings, not a traceback.
     """
     parsed: dict[str, dict[str, list[str]]] = {}
-    for entity, sets in (raw_sets or {}).items():
+    for entity, sets in _require_mapping(raw_sets, "field_sets").items():
         if not isinstance(sets, dict):
             raise ValueError(
                 f"field_sets.{entity}: expected a mapping of set name to "

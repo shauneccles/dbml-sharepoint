@@ -66,13 +66,34 @@ expected ',' or '}', but got '<stream end>'
 That covers what the YAML and DBML parsers reject, and the loader's own
 checks — an unknown key, a missing required one, a value of the wrong kind.
 
-It does **not** yet cover a section whose *shape* is wrong where the loader
-then indexes into it: `entities: []` parses as valid YAML and reaches
-`raw["entities"].items()`, which raises `AttributeError` and prints a
-traceback. `_CONFIG_ERRORS` deliberately does not catch that class, because
-an unexpected error really is a bug in the tool and must keep its stack — so
-closing this means the loader validating the shape, not the CLI widening what
-it swallows. Tracked in #141.
+It also covers a section whose *shape* is wrong — valid YAML, wrong kind of
+value — for every section read as a mapping of names:
+
+```console
+$ dbml-sharepoint build --mapping ./mapping.yaml …
+[ERROR] mapping ./mapping.yaml: views: expected a mapping of names, got list
+```
+
+Note this refuses `views: []` as well as a populated list. An empty sequence
+where a mapping belongs used to be swallowed by the loader's `or {}`, so the
+section loaded as empty and the build reported success having deployed none
+of what was written there — the same typo as the populated case, failing
+silently instead of loudly.
+
+Declaring **no** views remains entirely valid, and is not what this refuses.
+Omitting the section, `views:` with nothing under it, and `views: {}` are all
+accepted, and every non-`DocumentLibrary` list still gets the generated
+`All Items` view — authors are in fact forbidden from declaring one. What
+`views: []` signals is different: a sequence is what you are left with after
+commenting out the last entry, or what a templating step emits when it meant
+a map, so it almost always means views *were* intended. The list would still
+work, which is exactly why the loss needs to be loud — `All Items` makes a
+mapping that lost its views look like one that never had any.
+
+The guard lives in the loader, not the CLI. `_CONFIG_ERRORS` deliberately
+does not catch `AttributeError`/`TypeError`, because an unexpected error
+really is a bug in the tool and must keep its stack; widening it would have
+dressed every genuine loader bug up as a bad mapping file. Closed by #141.
 
 ## `report`
 

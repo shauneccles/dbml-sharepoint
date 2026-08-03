@@ -4,7 +4,7 @@ import inspect
 from pathlib import Path
 
 import pytest
-from _packs import blocks, entities, entity, write_mapping
+from _packs import blocks, entities, entity, with_tail, write_mapping
 from _paths import FIXTURES
 
 from dbml_sharepoint.model import _mapping_types, mapping_loader
@@ -2057,4 +2057,78 @@ def test_a_validation_rule_without_a_message_is_refused(tmp_path: Path) -> None:
                 when: { field: Title, op: is_not_null }
     """))
     with pytest.raises(ValueError, match="'message' is required"):
+        load_mapping(path)
+
+
+#: Every top-level section the loader treats as a mapping of name -> block,
+#: with a fragment putting a LIST where that mapping belongs.
+#:
+#: Non-empty deliberately. Most of these sections are read as
+#: `(raw.get(name) or {}).items()`, and an empty list is falsy -- so `[]`
+#: coerces to `{}` and the section silently deploys nothing, while a
+#: populated list reaches `.items()` and raises AttributeError. The two
+#: failure modes need different assertions, so `_EMPTY_SHAPES` below covers
+#: the fail-open half separately.
+_WRONG_SHAPES = [
+    ("entities", "entities:\n  - Project\n  - Risk\n"),
+    ("calculated_formulas", "calculated_formulas:\n  - Project\n"),
+    ("views", "views:\n  - Project\n"),
+    ("column_formatting", "column_formatting:\n  - Project\n"),
+    ("form_formatting", "form_formatting:\n  - Project\n"),
+    ("list_validation", "list_validation:\n  - Project\n"),
+    ("form_visibility", "form_visibility:\n  - Project\n"),
+    ("column_validation", "column_validation:\n  - Project\n"),
+    ("retired_columns", "retired_columns:\n  - Project\n"),
+    ("field_sets", "field_sets:\n  - Project\n"),
+    ("demo_items", "demo_items:\n  - Project\n"),
+    ("enum_sources", "enum_sources:\n  - Status\n"),
+    ("extensions", "extensions:\n  - fleet\n"),
+]
+
+
+@pytest.mark.parametrize(("section", "fragment"), _WRONG_SHAPES)
+def test_a_section_of_the_wrong_shape_names_the_section(
+    tmp_path: Path, section: str, fragment: str,
+) -> None:
+    """Valid YAML, wrong kind of value, must be a message naming the section.
+
+    `entities: []` is an easy thing to type -- it is what commenting out the
+    last entity leaves behind, or what a templating step emits when it meant
+    an empty map. Reaching `.items()` on it raised a bare AttributeError and
+    printed loader internals at a SharePoint admin editing YAML.
+
+    The guard belongs here rather than in `cli._CONFIG_ERRORS`: widening that
+    tuple to AttributeError/TypeError would make every genuine loader bug
+    look like a bad mapping file, which is the worse trade.
+    """
+    path = write_mapping(tmp_path, with_tail(entities("Project"), fragment))
+    with pytest.raises(ValueError, match=section):
+        load_mapping(path)
+
+
+#: The same sections with an EMPTY list. Read as `(raw.get(name) or {})`,
+#: an empty list is falsy and coerces to an empty mapping, so the section
+#: loads clean and deploys nothing -- the fail-open half of the same typo.
+#: `entities` is absent: it is read as `raw["entities"]` with no `or {}`,
+#: so `_WRONG_SHAPES` already covers its empty case.
+_EMPTY_SHAPES = [section for section, _ in _WRONG_SHAPES if section != "entities"]
+
+
+@pytest.mark.parametrize("section", _EMPTY_SHAPES)
+def test_an_empty_list_where_a_mapping_belongs_is_refused(
+    tmp_path: Path, section: str,
+) -> None:
+    """`views: []` must refuse, not quietly deploy no views.
+
+    This is the worse half of #141 and the one a traceback at least made
+    visible. `(raw.get("views") or {})` treats an empty list as an empty
+    mapping, so the build succeeds, reports "(none declared)" and ships a
+    list with no views on it -- indistinguishable from having meant that.
+    The repository's rule is that a wrong input fails closed with a named
+    error; `unknown mapping section(s)` exists for exactly this reason.
+    """
+    path = write_mapping(
+        tmp_path, with_tail(entities("Project"), f"{section}: []\n"),
+    )
+    with pytest.raises(ValueError, match=section):
         load_mapping(path)
