@@ -1086,7 +1086,22 @@ def test_an_acl_naming_an_undeclared_group_is_an_error() -> None:
 
 
 def test_a_display_name_override_longer_than_the_sp_limit_is_an_error() -> None:
-    """SharePoint caps a column's display title at 255 characters."""
+    """SharePoint caps a column's display title at 255 characters.
+
+    DOCUMENTED, not inferred. `Field element (Field)` on Microsoft Learn --
+    which lists SharePoint Online among the products it applies to -- says of
+    the `DisplayName` attribute: "The displayed name for a field. There is no
+    restriction on use of spaces. Maximum length is 255 characters." That page
+    also states the display name "is used as a column heading when the field is
+    displayed in a table view and as a form label when the field is displayed
+    in a form", which is the surface this project sets.
+
+    https://learn.microsoft.com/sharepoint/dev/schema/field-element-field
+
+    255 is therefore the last ACCEPTED length, not the first rejected one --
+    see the companion test below, which pins that boundary from the other side
+    so the rule cannot quietly become stricter than the documented cap.
+    """
     findings = validate_against_mapping(
         make_schema(make_table("Risk", make_column("Owner"))),
         make_bundle(
@@ -1099,6 +1114,28 @@ def test_a_display_name_override_longer_than_the_sp_limit_is_an_error() -> None:
     )
 
     assert only(findings, FindingCode.DISPLAY_TITLE_TOO_LONG).severity == "error"
+
+
+def test_a_display_name_override_at_the_sp_limit_is_accepted() -> None:
+    """Exactly 255 characters is legal, so the rule must not reject it.
+
+    The other side of the boundary, and the half that AGENTS.md's "an enforced
+    rule must never be stronger than what the reference implementation actually
+    satisfies" corollary is about. Asserting only that 256 fails leaves `>= 255`
+    -- or any tighter cap -- indistinguishable from the documented `> 255`, and
+    a rule stricter than Learn documents rejects mappings SharePoint would
+    accept. Learn's citation is on the companion test above.
+    """
+    findings = validate_against_mapping(
+        make_schema(make_table("Risk", make_column("Owner"))),
+        make_bundle(
+            entities=["Risk"],
+            display_name_mode="title-case",
+            display_name_overrides={"Risk": {"Owner": "T" * 255}},
+        ),
+    )
+
+    none_of(findings, FindingCode.DISPLAY_TITLE_TOO_LONG)
 
 
 def test_a_list_default_naming_an_unknown_retention_policy_is_an_error() -> None:

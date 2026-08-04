@@ -16,6 +16,19 @@ def check(vc: ValidationContext) -> list[Finding]:
     # display titles (auto + overrides) must be non-empty, within SharePoint's
     # 255-char Title bound, and unique per entity — a duplicate display title
     # makes two columns indistinguishable on every form and view.
+    #
+    # The 255 is DOCUMENTED, not assumed. Microsoft Learn, "Field element
+    # (Field)", which lists SharePoint Online among the products it applies to,
+    # says of `DisplayName`: "Maximum length is 255 characters."
+    # https://learn.microsoft.com/sharepoint/dev/schema/field-element-field
+    #
+    # `DisplayName` there is the field-schema attribute for the same surface
+    # this project writes as the REST `Title` property (see `jsgen`, which
+    # POSTs `{"Title": ...}` and renames Title to the declared display
+    # afterwards) — hence "Title bound" above. Both boundary directions are
+    # pinned: `test_a_display_name_override_longer_than_the_sp_limit_is_an_error`
+    # and `test_a_display_name_override_at_the_sp_limit_is_accepted`. 255 is the
+    # last accepted length, so this stays `> 255` and never `>= 255`.
     if bundle.mapping.display_name_mode is not None:
         for entity_name, cols in bundle.mapping.display_name_overrides.items():
             override_table = tables_by_name.get(entity_name)
