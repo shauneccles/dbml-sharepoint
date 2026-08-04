@@ -83,9 +83,23 @@ dbml-sharepoint build \
   --out ./build
 ```
 
+Inside a project directory — one the wizard created, or any folder using the
+same layout — the three input paths are the defaults, so a rebuild is:
+
+```bash
+dbml-sharepoint build --site-url https://yourtenant.sharepoint.com/sites/your-site
+```
+
 Add `--seed` to also emit [`demo-data.js.txt`](artifacts/demo-data.md) from
-the mapping's `demo_items`. Add `--dry-run` to validate without writing
+the mapping's `demo_items`. Add `--dry-run` to write the manifest without
 any JS.
+
+While you are still editing the schema or the mapping, reach for `validate`
+instead — it needs no site URL and writes nothing:
+
+```bash
+dbml-sharepoint validate
+```
 
 The build refuses to proceed on validation errors — the validator is the
 same fail-closed gate the deploy script trusts, run at build time where

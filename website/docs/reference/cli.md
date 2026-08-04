@@ -55,6 +55,55 @@ Behaviour worth knowing:
 - An extension that requires its own project CLI causes `build` to exit
   with instructions rather than emitting a half-configured bundle.
 
+## `validate`
+
+Check a schema and mapping. No site URL, no release, no output.
+
+```bash
+dbml-sharepoint validate          # inside a project directory
+```
+
+| Option | Default | Meaning |
+|---|---|---|
+| `--schema PATH` | `10-design/schema.dbml` | Path to the DBML schema file |
+| `--mapping PATH` | `20-configure/mapping.yaml` | Path to the mapping YAML |
+| `--site-role ROLE` | `default` | Rejected if the mapping does not declare it; does **not** narrow what is checked |
+| `--extension NAME` | mapping's `extension:` | Extension whose extra validators to run |
+
+Prints every finding with its code, then a count. Exits **1** if there are
+errors, **0** otherwise — warnings do not fail it, the same rule `build`
+applies.
+
+**Validation is always project-wide.** `--site-role` does not scope it, and
+an earlier version of this table wrongly said it selected which entities to
+check. A finding under `admin` is reported even when validating with
+`--site-role default`, which is deliberate: a mapping is one document, and
+an error hidden until somebody deploys that role means the mapping reads
+clean right up until the deploy that breaks. `validate_all` takes no role at
+all, and `build` calls it exactly the same way — so this matches what a build
+would report, which is the only useful contract for a pre-build check.
+
+What the flag does do here is reject a role the mapping does not declare, so
+`validate --site-role adnim` fails now rather than at
+`build --site-role adnim` later.
+
+### `validate` versus `build --dry-run`
+
+They answer different questions, which is why both exist:
+
+| | Question | Needs a site URL | Writes |
+|---|---|---|---|
+| `validate` | Is my schema and mapping correct? | no | nothing |
+| `build --dry-run` | What would this build do against that site, without emitting JS? | yes | `deploy-manifest.md` |
+
+`deploy-manifest.md` is a run sheet, not a findings report: step 3 of its
+sequence sends the operator to `<site-url>/_layouts/15/settings.aspx`. That
+is why `--dry-run` still requires a target, and why `validate` writes no
+manifest rather than one with a placeholder in its instructions.
+
+Reach for `validate` while editing. Reach for `--dry-run` when you want to
+read the deployment plan before committing to the paste.
+
 ## Exit codes
 
 Measured, because a CI gate keys on these:

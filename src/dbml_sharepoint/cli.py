@@ -236,6 +236,30 @@ def _project_input(
     )
 
 
+def _require_known_site_role(bundle: MappingBundle, site_role: str) -> None:
+    """Refuse a role the mapping does not declare.
+
+    The vocabulary is data-driven -- the valid roles are whatever the
+    entities declare, never a hardcoded list -- because a misspelled role
+    would otherwise be silently filtered to an empty entity set and exit 0,
+    reporting success for a build that would provision nothing.
+
+    Shared by `build`, `report` and `validate` rather than spelled three
+    times: three commands disagreeing about which roles exist is exactly
+    the kind of drift that makes a `--dry-run` pass and the real build
+    refuse.
+    """
+    known_roles = {e.site_role for e in bundle.mapping.entities.values()}
+    if site_role in known_roles:
+        return
+    typer.echo(
+        f"Invalid --site-role {site_role!r}; the mapping declares: "
+        f"{', '.join(sorted(known_roles)) or '(none)'}.",
+        err=True,
+    )
+    raise typer.Exit(code=2)
+
+
 def _config_error(what: str, path: Path | None, exc: Exception) -> NoReturn:
     detail = f"missing required key {exc}" if isinstance(exc, KeyError) else str(exc)
     typer.echo(f"[ERROR] {what} {path}: {detail}", err=True)
@@ -413,17 +437,7 @@ def execute_build(
         )
         raise typer.Exit(code=2)
 
-    # Site-role vocabulary is data-driven: the valid roles are those declared
-    # by the mapping's entities (no hardcoded any labels you choose). A misspelled role
-    # would otherwise be silently filtered to an empty deploy plan (exit 0).
-    known_roles = {e.site_role for e in bundle.mapping.entities.values()}
-    if site_role not in known_roles:
-        typer.echo(
-            f"Invalid --site-role {site_role!r}; the mapping declares: "
-            f"{', '.join(sorted(known_roles)) or '(none)'}.",
-            err=True,
-        )
-        raise typer.Exit(code=2)
+    _require_known_site_role(bundle, site_role)
 
     # Everything above this line is a pure read that can refuse: a malformed
     # URL, an unreadable input file, an extension needing its own CLI, a role
@@ -529,6 +543,76 @@ def execute_build(
 
 
 @app.command()
+def validate(
+    schema: Path | None = typer.Option(
+        None, help=f"Path to the DBML schema file. Default: {SCHEMA_RELPATH}",
+    ),
+    mapping: Path | None = typer.Option(
+        None, help=f"Path to the mapping YAML. Default: {MAPPING_RELPATH}",
+    ),
+    site_role: str = typer.Option(
+        "default",
+        help="Site role; must match one the mapping declares. Does NOT narrow "
+             "what is checked -- validation is always project-wide.",
+    ),
+    extension: str | None = typer.Option(
+        None,
+        help="Extension name; overrides the mapping's `extension:` key. Resolved via entry points.",
+    ),
+) -> None:
+    """Check the schema and mapping. No site URL, no output, no release.
+
+    `validate_all` takes a schema, a mapping bundle and an extension --
+    not a site URL and not a release. Answering "is this correct?" through
+    `build --dry-run` therefore cost an invented tenant URL, on the tightest
+    loop in the tool: edit the mapping, check, edit again.
+
+    Deliberately NOT the same thing as `build --dry-run`, which keeps its
+    contract unchanged. The two answer different questions:
+
+    * `validate` -- is my schema and mapping correct?
+    * `build --dry-run` -- what would this build do against that site,
+      without emitting JS?
+
+    The second is a run sheet for a named target. `deploy-manifest.md` does
+    not merely stamp the site URL in a header; step 3 of its run sequence
+    sends the operator to `<site_url>/_layouts/15/settings.aspx`. Rendering
+    that with a not-supplied marker would produce an artifact whose own
+    instructions are fiction, which is why this command writes no manifest
+    rather than `--dry-run` learning to omit the target.
+
+    Writes nothing at all, and takes no `--out`. A question, not an artifact.
+
+    `--site-role` does NOT scope the check, and must not. `validate_all`
+    takes no role and `build` calls it identically, so validation has always
+    been project-wide -- this reports exactly what a build would. Narrowing
+    it would hide an error under `admin` from anyone validating `default`,
+    which means the mapping reads clean until the deploy that breaks. The
+    flag's job here is to reject a role the mapping does not declare, moving
+    a typo's discovery earlier. Pinned by
+    `test_validate_checks_every_role_not_just_the_selected_one`.
+    """
+    schema = _project_input(schema, SCHEMA_RELPATH, "--schema")
+    mapping = _project_input(mapping, MAPPING_RELPATH, "--mapping")
+    parsed_schema, bundle, _ = _load_config(schema, mapping, None)
+    ext = resolve_extension(extension or bundle.mapping.extension)
+    _require_known_site_role(bundle, site_role)
+
+    findings = validate_all(parsed_schema, bundle, ext)
+    for f in findings:
+        typer.echo(f"  [{f.severity.upper()}] {f.code}: {f.message}", err=True)
+
+    errors = sum(1 for f in findings if f.severity == "error")
+    warnings = len(findings) - errors
+    typer.echo(
+        f"{schema}: {errors} error(s), {warnings} warning(s).",
+        err=errors > 0,
+    )
+    if errors:
+        raise typer.Exit(code=1)
+
+
+@app.command()
 def report(
     schema: Path | None = typer.Option(
         None, help=f"Path to the DBML schema file. Default: {SCHEMA_RELPATH}",
@@ -578,16 +662,7 @@ def report(
         release = RELEASE_RELPATH
     parsed_schema, bundle, release_obj = _load_config(schema, mapping, release)
 
-    # Same data-driven role vocabulary as `build`: a misspelled role would
-    # otherwise silently produce an empty report set (exit 0).
-    known_roles = {e.site_role for e in bundle.mapping.entities.values()}
-    if site_role not in known_roles:
-        typer.echo(
-            f"Invalid --site-role {site_role!r}; the mapping declares: "
-            f"{', '.join(sorted(known_roles)) or '(none)'}.",
-            err=True,
-        )
-        raise typer.Exit(code=2)
+    _require_known_site_role(bundle, site_role)
 
     generated_at = dt.datetime.now(dt.UTC).isoformat(timespec="seconds")
     dictionary_kwargs: dict[str, Any] = dict(

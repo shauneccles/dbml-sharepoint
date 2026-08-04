@@ -84,6 +84,44 @@ contract (2 for misuse, 1 for a refused build), and re-mapping them to
 an exception of its own here would give the wizard a second vocabulary
 for the same failures. The wizard catches it.
 
+### `validate`
+
+```python
+def validate(schema: pathlib.Path | None = ..., mapping: pathlib.Path | None = ..., site_role: str = ..., extension: str | None = ...) -> None
+```
+
+Check the schema and mapping. No site URL, no output, no release.
+
+`validate_all` takes a schema, a mapping bundle and an extension --
+not a site URL and not a release. Answering "is this correct?" through
+`build --dry-run` therefore cost an invented tenant URL, on the tightest
+loop in the tool: edit the mapping, check, edit again.
+
+Deliberately NOT the same thing as `build --dry-run`, which keeps its
+contract unchanged. The two answer different questions:
+
+* `validate` -- is my schema and mapping correct?
+* `build --dry-run` -- what would this build do against that site,
+  without emitting JS?
+
+The second is a run sheet for a named target. `deploy-manifest.md` does
+not merely stamp the site URL in a header; step 3 of its run sequence
+sends the operator to `<site_url>/_layouts/15/settings.aspx`. Rendering
+that with a not-supplied marker would produce an artifact whose own
+instructions are fiction, which is why this command writes no manifest
+rather than `--dry-run` learning to omit the target.
+
+Writes nothing at all, and takes no `--out`. A question, not an artifact.
+
+`--site-role` does NOT scope the check, and must not. `validate_all`
+takes no role and `build` calls it identically, so validation has always
+been project-wide -- this reports exactly what a build would. Narrowing
+it would hide an error under `admin` from anyone validating `default`,
+which means the mapping reads clean until the deploy that breaks. The
+flag's job here is to reject a role the mapping does not declare, moving
+a typo's discovery earlier. Pinned by
+`test_validate_checks_every_role_not_just_the_selected_one`.
+
 ### `report`
 
 ```python

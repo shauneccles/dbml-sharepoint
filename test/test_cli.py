@@ -6,8 +6,16 @@ import sys
 from pathlib import Path
 
 import pytest
-from _builders import ID_PK, table
-from _packs import blocks, entities, replaced, with_tail, write_dbml, write_mapping
+from _builders import ID_PK, TITLE, table
+from _packs import (
+    blocks,
+    entities,
+    entity,
+    replaced,
+    with_tail,
+    write_dbml,
+    write_mapping,
+)
 from _paths import FIXTURES, PACKAGE, SOLUTION_TEMPLATES
 from typer.testing import CliRunner, Result
 
@@ -61,7 +69,7 @@ def test_every_documented_command_survived_the_wizard_default() -> None:
     change that can turn a subcommand into a no-op: the callback runs for
     every invocation, and an early `raise typer.Exit` in it would swallow
     them all while `--help` kept listing them."""
-    for command in ("build", "report", "version"):
+    for command in ("build", "validate", "report", "version"):
         result = runner.invoke(app, [command, "--help"])
         assert result.exit_code == 0, f"{command} --help failed"
         assert command in result.stdout
@@ -111,7 +119,7 @@ def test_help_still_renders_as_rich_panels() -> None:
 
     # Every registered command is listed. A command silently dropped from the
     # help screen is invisible to anyone who has not read the source.
-    for command in ("build", "report", "version"):
+    for command in ("build", "validate", "report", "version"):
         assert command in out, f"{command!r} is missing from the help screen"
 
 
@@ -1327,3 +1335,130 @@ def test_report_succeeds_in_a_project_with_no_release_file(
 
     assert result.exit_code == 0, result.output
     assert (Path("reports") / "data-dictionary.md").is_file()
+
+
+def test_validate_accepts_a_valid_schema_without_a_site_url(tmp_path: Path) -> None:
+    """The whole point: `validate_all` takes a schema, a mapping bundle and
+    an extension. Not a site URL, not a release. Requiring either to answer
+    "is this correct?" made the tightest loop in the tool -- edit, check,
+    edit -- cost an invented tenant URL."""
+    result = runner.invoke(app, [
+        "validate",
+        "--schema", str(FIXTURES / "simple.dbml"),
+        "--mapping", str(FIXTURES / "sharepoint-mapping.yaml"),
+    ])
+
+    assert result.exit_code == 0, result.output
+
+
+def test_validate_refuses_an_invalid_schema(tmp_path: Path) -> None:
+    bad = tmp_path / "bad.dbml"
+    bad.write_text(
+        replaced(
+            (FIXTURES / "simple.dbml").read_text(encoding="utf-8"),
+            "Status    status     [not null, default: 'Open']",
+            "Status    persson",
+        ),
+        encoding="utf-8",
+    )
+
+    result = runner.invoke(app, [
+        "validate",
+        "--schema", str(bad),
+        "--mapping", str(FIXTURES / "sharepoint-mapping.yaml"),
+    ])
+
+    assert result.exit_code == 1
+    assert "unknown_column_type" in result.output
+
+
+def test_validate_writes_nothing(tmp_path: Path) -> None:
+    """It answers a question; it does not produce an artifact.
+
+    `build --dry-run` deliberately still writes deploy-manifest.md, which is
+    a run sheet for a named target. This command has no target and must not
+    leave anything behind that looks like one.
+    """
+    monkeypatch_cwd = tmp_path / "empty"
+    monkeypatch_cwd.mkdir()
+
+    result = runner.invoke(app, [
+        "validate",
+        "--schema", str(FIXTURES / "simple.dbml"),
+        "--mapping", str(FIXTURES / "sharepoint-mapping.yaml"),
+        "--out", str(monkeypatch_cwd),
+    ])
+
+    # There is no --out to give: the flag must not exist at all.
+    assert result.exit_code == 2
+    assert list(monkeypatch_cwd.iterdir()) == []
+
+
+def test_validate_needs_no_flags_inside_a_project(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """With #124's path defaults this is the whole command."""
+    monkeypatch.chdir(_project(tmp_path))
+
+    result = runner.invoke(app, ["validate"])
+
+    assert result.exit_code == 0, result.output
+    assert not (Path("build")).exists()
+
+
+def test_validate_rejects_an_unknown_site_role(tmp_path: Path) -> None:
+    """Same data-driven vocabulary `build` and `report` use. A misspelled
+    role would otherwise validate an empty entity set and report success."""
+    result = runner.invoke(app, [
+        "validate",
+        "--schema", str(FIXTURES / "simple.dbml"),
+        "--mapping", str(FIXTURES / "sharepoint-mapping.yaml"),
+        "--site-role", "nosuchrole",
+    ])
+
+    assert result.exit_code == 2
+    assert "nosuchrole" in result.output
+
+
+def test_validate_checks_every_role_not_just_the_selected_one(tmp_path: Path) -> None:
+    """`--site-role` does NOT narrow what gets validated, and must not.
+
+    Raised by review on #135, which read the option as selecting which
+    entities to check -- the CLI reference said exactly that -- and called
+    the mismatch a bug. The behaviour is right and the documentation was
+    wrong: `validate_all(schema, bundle, extension)` takes no role, and
+    `build` calls it the same way, so validation has always been
+    project-wide.
+
+    Narrowing it would be the actual bug. A mapping is one document; an
+    error under `admin` is an error whether or not this run happens to be
+    deploying `admin`, and hiding it until somebody runs with that role
+    means the mapping validates clean right up until the deploy that
+    breaks. The flag's job here is to reject a role the mapping does not
+    declare -- catching the typo before `build --site-role adnim` does.
+
+    Pinned so that a future "scope validation to the role" change has to
+    argue with a test rather than look like a tidy-up.
+    """
+    mapping = write_mapping(tmp_path, blocks(
+        entities(entity("Project"), entity("AdminOnly", site_role="admin")),
+        """
+        views:
+          AdminOnly:
+            - title: Broken
+              fields: [NoSuchColumn]
+        """,
+    ))
+    schema = write_dbml(tmp_path, blocks(
+        table("Project", ID_PK, TITLE),
+        table("AdminOnly", ID_PK, TITLE),
+    ))
+
+    result = runner.invoke(app, [
+        "validate", "--schema", str(schema), "--mapping", str(mapping),
+        "--site-role", "default",
+    ])
+
+    # The finding belongs to an entity this role would never deploy.
+    assert result.exit_code == 1, result.output
+    assert "AdminOnly" in result.output, result.output
