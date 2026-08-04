@@ -26,6 +26,12 @@ CALCULATED_OUTPUT_TYPES = {'calculated_text': 2, 'calculated_number': 9, 'calcul
 CALCULATED_TYPES = frozenset({'calculated_date', 'calculated_number', 'calculated_text'})
 ```
 
+### `CALCULATED_TYPE_LIST`
+
+```python
+CALCULATED_TYPE_LIST = 'calculated_date, calculated_number, calculated_text'
+```
+
 ### `KNOWN_SCALARS`
 
 ```python

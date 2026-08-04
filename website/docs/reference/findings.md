@@ -147,7 +147,7 @@ dbml-sharepoint explain unknown_column_type
 | `formatter_field_not_displayed` | error | A view formatter references a real column the view does not display; a view formatter can only read columns in its own `fields`, so the format would never fire. |
 | `formatter_field_not_rendered` | error | A view formatter references a column the entity does not render. |
 | `formatter_missing_elmtype` | error | A column formatter's JSON has no root `elmType`, so it is not a SharePoint column-formatting object. |
-| `formula_target_not_calculated` | error | A `calculated_formulas:` entry names a column that is not `calculated_text` or `calculated_number`. |
+| `formula_target_not_calculated` | error | A `calculated_formulas:` entry names a column whose DBML type is not one of: calculated_date, calculated_number, calculated_text. |
 | `hide_is_unnecessary` | warning | `hide_from_all_items` is set on an entity whose `All Items` view is already within the join ceiling with nothing hidden. |
 | `hide_of_cross_site_reference` | error | `hide_from_all_items` names a cross-site reference, which expands to a Choice + URL pair and costs no join operation. |
 | `hide_of_non_join_bearing_column` | error | `hide_from_all_items` names a column that costs no join operation; only a join-bearing column may be hidden. |

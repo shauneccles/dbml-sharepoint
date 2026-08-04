@@ -29,6 +29,7 @@ same arrangement `generate_api.py` already has for the API reference.
 """
 
 from dbml_sharepoint.analysis.findings import FindingCode
+from dbml_sharepoint.analysis.typemap import CALCULATED_TYPE_LIST
 
 #: Every rule this build can report, by code. One entry per `FindingCode`
 #: member; `test_every_code_has_help` fails the build on either a member with
@@ -451,8 +452,8 @@ FINDING_HELP: dict[FindingCode, str] = {
         "a SharePoint column-formatting object."
     ),
     FindingCode.FORMULA_TARGET_NOT_CALCULATED: (
-        "A `calculated_formulas:` entry names a column that is not "
-        "`calculated_text` or `calculated_number`."
+        "A `calculated_formulas:` entry names a column whose DBML type is "
+        f"not one of: {CALCULATED_TYPE_LIST}."
     ),
     FindingCode.FORM_COLUMNS_IN_NO_SECTION: (
         "Columns are referenced by no form body section. SharePoint "

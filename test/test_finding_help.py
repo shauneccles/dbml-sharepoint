@@ -22,6 +22,7 @@ from typer.testing import CliRunner
 
 from dbml_sharepoint.analysis.finding_help import FINDING_HELP
 from dbml_sharepoint.analysis.findings import Finding, FindingCode
+from dbml_sharepoint.analysis.typemap import CALCULATED_TYPES
 from dbml_sharepoint.cli import app
 
 runner = CliRunner()
@@ -62,6 +63,25 @@ def test_no_help_text_is_empty() -> None:
 
 def test_every_severity_is_a_declared_one() -> None:
     assert {c.severity for c in FindingCode} <= {"error", "warning"}
+
+
+def test_the_formula_target_entry_names_every_calculated_type() -> None:
+    """An entry that lists the allowed types must list all of them.
+
+    This one said a `calculated_formulas:` entry must name a
+    `calculated_text` or `calculated_number` column. `typemap.py` also
+    defines `calculated_date`, `_structure.py` accepts every type in
+    `CALCULATED_TYPES`, and the shipped `risk-register` schema uses a
+    calculated date -- so `explain formula_target_not_calculated` told an
+    operator to abandon a column the build was perfectly happy with.
+
+    The catalogue is prose, and prose that enumerates a vocabulary is a copy
+    of it. Asserted against `CALCULATED_TYPES` so the copy cannot drift
+    again; the entry now interpolates that set rather than restating it.
+    """
+    text = FINDING_HELP[FindingCode.FORMULA_TARGET_NOT_CALCULATED]
+    missing = sorted(t for t in CALCULATED_TYPES if t not in text)
+    assert not missing, f"the entry does not name {missing}: {text}"
 
 
 def test_the_catalogue_records_no_severity_of_its_own() -> None:

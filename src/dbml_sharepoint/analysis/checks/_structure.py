@@ -8,7 +8,10 @@ from dbml_sharepoint.analysis.lookups import (
     lookup_target_entities,
 )
 from dbml_sharepoint.analysis.ordering import compute_phases
-from dbml_sharepoint.analysis.typemap import UNSUPPORTED_INDEX_TYPES
+from dbml_sharepoint.analysis.typemap import (
+    CALCULATED_TYPE_LIST,
+    UNSUPPORTED_INDEX_TYPES,
+)
 from dbml_sharepoint.analysis.validator import (
     CALCULATED_TYPES,
     MAX_CALCULATED_FORMULA,
@@ -615,8 +618,8 @@ def check(vc: ValidationContext) -> list[Finding]:
                 findings.append(Finding(
                     FindingCode.FORMULA_TARGET_NOT_CALCULATED,
                     f"calculated_formulas[{entity_name}]: {col_name!r} is not "
-                    f"a calculated_text/calculated_number column of "
-                    f"{entity_name}.",
+                    f"a calculated column of {entity_name} -- its DBML type "
+                    f"must be one of {CALCULATED_TYPE_LIST}.",
                     location=Location(
                         Section.CALCULATED_FORMULAS, entity=entity_name,
                     ),

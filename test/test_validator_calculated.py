@@ -10,6 +10,7 @@ from _model import table as make_table
 from _paths import FIXTURES
 
 from dbml_sharepoint.analysis.findings import FindingCode, Location, Section
+from dbml_sharepoint.analysis.typemap import CALCULATED_TYPES
 from dbml_sharepoint.analysis.validator import (
     validate,
     validate_against_mapping,
@@ -90,6 +91,52 @@ def test_orphan_calculated_formula_is_error() -> None:
     assert f.severity == "error"
     assert f.location == Location(Section.CALCULATED_FORMULAS, entity="Risk")
     assert "NotAColumn" in f.message
+
+@pytest.mark.parametrize("calculated_type", sorted(CALCULATED_TYPES))
+def test_every_calculated_type_is_a_valid_formula_target(calculated_type: str) -> None:
+    """The rule accepts the whole calculated vocabulary, not two thirds of it.
+
+    `_structure.py` gates on `CALCULATED_TYPES`, so this passes for all three
+    -- including `calculated_date`, which the shipped `risk-register` schema
+    uses for `NextReviewDue`. Pinned as the premise of the message test
+    below: that test asserts the prose names every type this one proves is
+    accepted, and without it the pair could be made to agree by weakening
+    the rule instead of correcting the sentence.
+    """
+    schema = make_schema(make_table(
+        "Risk",
+        make_column("Title", required=True),
+        make_column("Derived", calculated_type),
+    ))
+    bundle = make_bundle(
+        entities=["Risk"], calculated_formulas={"Risk": {"Derived": "=[Title]"}},
+    )
+    none_of(
+        validate_against_mapping(schema, bundle),
+        FindingCode.FORMULA_TARGET_NOT_CALCULATED,
+    )
+
+def test_orphan_formula_message_names_every_calculated_type() -> None:
+    """The message has to name the remedies, and all of them.
+
+    One code covers every wrong target, so the set of types that WOULD be
+    accepted reaches the author only through this sentence. It named
+    `calculated_text` and `calculated_number` and omitted `calculated_date`
+    -- a hand-written third copy of a vocabulary that `typemap.py` already
+    owns, telling an author to rewrite a column that was legal all along.
+
+    Asserted against `CALCULATED_TYPES` rather than against three literals,
+    so a fourth calculated type fails here instead of quietly going
+    unmentioned.
+    """
+    schema, bundle = _calc_inputs()
+    bundle.mapping.calculated_formulas["Risk"]["NotAColumn"] = "=1"
+    f = only(
+        validate_against_mapping(schema, bundle),
+        FindingCode.FORMULA_TARGET_NOT_CALCULATED,
+    )
+    missing = sorted(t for t in CALCULATED_TYPES if t not in f.message)
+    assert not missing, f"message does not name {missing}: {f.message}"
 
 def test_calculated_formula_must_start_with_equals() -> None:
     schema, bundle = _calc_inputs()
