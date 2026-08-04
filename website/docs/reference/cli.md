@@ -80,15 +80,26 @@ section loaded as empty and the build reported success having deployed none
 of what was written there — the same typo as the populated case, failing
 silently instead of loudly.
 
-Declaring **no** views remains entirely valid, and is not what this refuses.
-Omitting the section, `views:` with nothing under it, and `views: {}` are all
-accepted, and every non-`DocumentLibrary` list still gets the generated
-`All Items` view — authors are in fact forbidden from declaring one. What
-`views: []` signals is different: a sequence is what you are left with after
-commenting out the last entry, or what a templating step emits when it meant
-a map, so it almost always means views *were* intended. The list would still
-work, which is exactly why the loss needs to be loud — `All Items` makes a
-mapping that lost its views look like one that never had any.
+This is a rule about **shape, not emptiness**. Declaring no views is
+entirely valid and is not what this refuses — omitting the section, `views:`
+with nothing under it, and `views: {}` are all accepted, and every
+non-`DocumentLibrary` list still gets the generated `All Items` view
+regardless (authors are in fact forbidden from declaring one).
+
+`{}` and `[]` are not two ways of writing "empty". These sections are keyed
+by name: `{}` is that structure with zero entries, `[]` is a different
+structure. The shipped mappings already depend on the distinction —
+
+```yaml
+enum_sources: {}                 # keyed by name
+versioning:
+  overrides: {}                  # keyed by name
+watched_lists: []                # a list
+permission_levels: []            # a list
+```
+
+— so `[]` under a name-keyed section says the author has the wrong shape in
+mind, which is worth catching before they populate it.
 
 The guard lives in the loader, not the CLI. `_CONFIG_ERRORS` deliberately
 does not catch `AttributeError`/`TypeError`, because an unexpected error

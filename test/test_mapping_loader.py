@@ -2092,10 +2092,10 @@ def test_a_section_of_the_wrong_shape_names_the_section(
 ) -> None:
     """Valid YAML, wrong kind of value, must be a message naming the section.
 
-    `entities: []` is an easy thing to type -- it is what commenting out the
-    last entity leaves behind, or what a templating step emits when it meant
-    an empty map. Reaching `.items()` on it raised a bare AttributeError and
-    printed loader internals at a SharePoint admin editing YAML.
+    `entities: []` is an easy thing to type, or for a templating step to
+    emit when it meant an empty map. Reaching `.items()` on it raised a bare
+    AttributeError and printed loader internals at a SharePoint admin
+    editing YAML.
 
     The guard belongs here rather than in `cli._CONFIG_ERRORS`: widening that
     tuple to AttributeError/TypeError would make every genuine loader bug
@@ -2118,14 +2118,24 @@ _EMPTY_SHAPES = [section for section, _ in _WRONG_SHAPES if section != "entities
 def test_an_empty_list_where_a_mapping_belongs_is_refused(
     tmp_path: Path, section: str,
 ) -> None:
-    """`views: []` must refuse, not quietly deploy no views.
+    """`views: []` must refuse for the same reason `views: [Project]` does.
 
-    This is the worse half of #141 and the one a traceback at least made
-    visible. `(raw.get("views") or {})` treats an empty list as an empty
-    mapping, so the build succeeds, reports "(none declared)" and ships a
-    list with no views on it -- indistinguishable from having meant that.
-    The repository's rule is that a wrong input fails closed with a named
-    error; `unknown mapping section(s)` exists for exactly this reason.
+    Not because it is empty -- `views: {}` is accepted and
+    `test_an_entity_declaring_no_views_still_gets_all_items` pins that a
+    mapping declaring no views is perfectly valid. Because it is the wrong
+    SHAPE. These sections are keyed by name; `{}` is that structure with
+    zero entries and `[]` is a different structure.
+
+    The thirty shipped mappings already draw exactly this line, 143 times:
+    `enum_sources: {}` and `versioning.overrides: {}` beside
+    `watched_lists: []` and `permission_levels: []`, which are list-shaped
+    sections. So this rule is no stronger than what the reference
+    implementation satisfies -- the corollary in AGENTS.md -- and
+    `test_template_standard` loads every one of the thirty over a globbed
+    roster, so a rule that outgrew them would fail there.
+
+    `(raw.get("views") or {})` hid it because an empty list is falsy, so the
+    section loaded as absent and the build reported success.
     """
     path = write_mapping(
         tmp_path, with_tail(entities("Project"), f"{section}: []\n"),

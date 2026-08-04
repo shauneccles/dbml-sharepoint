@@ -12,25 +12,32 @@ def _require_mapping(block: Any, context: str) -> dict[str, Any]:
     """Return `block` as a mapping, or fail naming the section.
 
     For the sections read as `name -> block`. Apply it BEFORE indexing or
-    iterating one, because the two ways a wrong shape gets there fail in
-    opposite and equally bad directions:
+    iterating one:
 
     - A populated list reaches `.items()` and raises AttributeError, which
       the CLI cannot catch — `_CONFIG_ERRORS` deliberately excludes it so a
       genuine loader bug keeps its traceback — so a SharePoint admin editing
       YAML got twenty lines of loader internals instead of a sentence.
     - An EMPTY list is falsy, so the `or {}` these sections were written with
-      coerced it to an empty mapping. `views: []` built clean, reported
-      "(none declared)" and shipped a list with no views on it. That is the
-      silent-success failure class this project exists to close, and it is
-      the worse of the two.
+      coerced it to an empty mapping and the section loaded as absent.
 
-    Both come from one typo — commenting out the last entry under a section,
-    or a templating step that emitted a sequence where a map belonged.
+    What this is NOT is a rule about emptiness. `{}` is accepted: it is this
+    structure with zero entries, and the thirty shipped mappings write it
+    that way deliberately — `enum_sources: {}` and `versioning.overrides: {}`
+    sit beside `watched_lists: []` and `permission_levels: []`, which are
+    list-shaped sections where `[]` is the correct literal. The templates
+    already keep the two apart, 143 times, so `[]` on a name-keyed section
+    means the author has the wrong shape in mind, not that they have nothing
+    to declare.
 
-    `None` still means absent: `views:` with nothing under it is how YAML
-    spells an empty section, and refusing that would break mappings that are
-    correct today.
+    Note it is worth being accurate about where `[]` comes from, because the
+    obvious guess is wrong: commenting out the entries under a section yields
+    `None`, not an empty sequence. `[]` has to be typed, or emitted by a
+    templating step that reached for the wrong empty literal.
+
+    `None` still means absent — a blank or commented-out key is YAML's way of
+    not supplying a value, and refusing it would break every mapping that
+    omits an optional section.
     """
     if block is None:
         return {}
