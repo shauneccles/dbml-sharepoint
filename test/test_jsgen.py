@@ -2976,3 +2976,37 @@ if __name__ == "__main__":  # pragma: no cover
     # file would read as modified locally while producing an empty diff.
     _target.write_text(_generate_simple_js(), encoding="utf-8", newline="\n")
     print(f"wrote {_target}")  # noqa: T201
+
+
+def test_an_entity_declaring_no_views_still_gets_all_items(tmp_path: Path) -> None:
+    """A mapping with no `views:` section at all is valid, and its lists work.
+
+    `All Items` is generated, never declared -- authors are refused if they
+    try (`_views.py`'s "'All Items' is generated with every" error). So a
+    template that ships no views is not shipping a list you cannot read; it
+    ships one with the generated view, and with nothing declared to outrank
+    it that view is the default and visible.
+
+    Pinned because it is the invariant on the other side of #141's guard.
+    `views: []` now refuses, and the reason that is safe to do is precisely
+    that declaring no views has its own well-formed spellings -- an omitted
+    section, `views:`, `views: {}`. A guard that crept into refusing those
+    would break every mapping that never wanted a view, and the deploy would
+    still look fine right up until it was not.
+    """
+    from dbml_sharepoint.generators.jsgen import build_schema_json
+
+    schema, bundle = pack(
+        tmp_path,
+        dbml=table("Risk", ID_PK, TITLE, "DueDate date"),
+        mapping=entities("Risk"),  # no `views:` section whatsoever
+    )
+    schema_json = build_schema_json(schema, bundle, "default")
+
+    assert [view["title"] for view in schema_json["views"]] == ["All Items"]
+    all_items = schema_json["views"][0]
+    # Default AND visible: with nothing declared there is no authored view to
+    # hand the working UI to, which is the opposite of the declared-view case
+    # asserted in test_schema_json_carries_declared_views.
+    assert all_items["set_default"] is True
+    assert all_items["hidden"] is False
