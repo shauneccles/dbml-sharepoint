@@ -2142,3 +2142,52 @@ def test_an_empty_list_where_a_mapping_belongs_is_refused(
     )
     with pytest.raises(ValueError, match=section):
         load_mapping(path)
+
+
+#: Sections whose wrong shape survived the first pass of #141, each with a
+#: fragment putting a list where a mapping belongs. These are the NESTED and
+#: late-parsed levels -- the top-level sweep guarded the loop it iterates,
+#: but each of these reads through its own `or {}` further down.
+_NESTED_WRONG_SHAPES = [
+    ("versioning", "versioning: []\n"),
+    ("versioning.default", "versioning:\n  default: []\n"),
+    ("list_permissions", "list_permissions: []\n"),
+    ("list_permissions.overrides", "list_permissions:\n  overrides: []\n"),
+]
+
+
+@pytest.mark.parametrize(("section", "fragment"), _NESTED_WRONG_SHAPES)
+def test_a_nested_section_of_the_wrong_shape_is_refused(
+    tmp_path: Path, section: str, fragment: str,
+) -> None:
+    """`or {}` hides a wrong shape at every level, not just the top one.
+
+    Found by review on #142 after the first pass guarded only the sections
+    whose top-level loop raised. A level that still reads
+    `x.get("default") or {}` coerces an empty list to an empty mapping
+    exactly as before, so `versioning: []` loaded as "no versioning
+    declared" and the build reported success -- the same fail-open the
+    original sweep was for.
+    """
+    path = write_mapping(tmp_path, with_tail(entities("Project"), fragment))
+    with pytest.raises(ValueError, match=section.split(".")[-1]):
+        load_mapping(path)
+
+
+def test_a_bare_entities_key_names_entities(tmp_path: Path) -> None:
+    """`entities:` with nothing under it must say so, not blame --site-role.
+
+    `entities` is REQUIRED, so unlike every optional section a null value is
+    not "absent, carry on". The first pass of #141 gave `_require_mapping` a
+    blanket `None -> {}`, which is right for an optional section and wrong
+    here: the build went on with zero entities and died further downstream
+    with "Invalid --site-role 'default'; the mapping declares: (none)",
+    sending the operator to look at a flag that was never the problem.
+
+    Before #141 this raised AttributeError -- ugly, but it at least pointed
+    at `entities`. Trading a loud wrong-looking error for a quiet
+    wrong-pointing one is not an improvement.
+    """
+    path = write_mapping(tmp_path, "entities:\n")
+    with pytest.raises(ValueError, match="entities"):
+        load_mapping(path)

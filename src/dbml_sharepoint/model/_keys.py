@@ -8,7 +8,9 @@ without importing each other.
 from typing import Any
 
 
-def _require_mapping(block: Any, context: str) -> dict[str, Any]:
+def _require_mapping(
+    block: Any, context: str, *, allow_absent: bool = True,
+) -> dict[str, Any]:
     """Return `block` as a mapping, or fail naming the section.
 
     For the sections read as `name -> block`. Apply it BEFORE indexing or
@@ -38,8 +40,25 @@ def _require_mapping(block: Any, context: str) -> dict[str, Any]:
     `None` still means absent — a blank or commented-out key is YAML's way of
     not supplying a value, and refusing it would break every mapping that
     omits an optional section.
+
+    `allow_absent=False` is for the REQUIRED sections, where that reasoning
+    inverts: `entities:` with nothing under it is not "no entities declared,
+    carry on", it is a mapping that cannot build. Letting it through as `{}`
+    made the build die further downstream on "Invalid --site-role 'default';
+    the mapping declares: (none)" — an error that points at a flag which was
+    never the problem. A loud error in the wrong shape is still better than a
+    quiet one aimed at the wrong place.
+
+    Apply this at EVERY level, not just the top, for the same reason
+    `_reject_unknown_keys` says so: a level that still reads
+    `x.get("default") or {}` coerces an empty list right back to an empty
+    mapping and the section loads as absent.
     """
     if block is None:
+        if not allow_absent:
+            raise ValueError(
+                f"{context}: required, but the key is present with no value",
+            )
         return {}
     if not isinstance(block, dict):
         raise ValueError(

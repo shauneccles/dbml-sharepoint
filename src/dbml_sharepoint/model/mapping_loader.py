@@ -179,7 +179,9 @@ def load_mapping(mapping_path: Path) -> MappingBundle:
     base_dir = mapping_path.parent
 
     entities = {}
-    for name, spec in _require_mapping(raw["entities"], "entities").items():
+    for name, spec in _require_mapping(
+        raw["entities"], "entities", allow_absent=False,
+    ).items():
         _reject_unknown_keys(spec, _ENTITY_KEYS, f"entities.{name}")
         entities[name] = EntityMapping(
             name=name,
@@ -214,9 +216,9 @@ def load_mapping(mapping_path: Path) -> MappingBundle:
             discriminator=item["discriminator"],
         ))
 
-    versioning = raw.get("versioning") or {}
+    versioning = _require_mapping(raw.get("versioning"), "versioning")
     _reject_unknown_keys(versioning, {"default", "overrides"}, "versioning")
-    default_v = versioning.get("default") or {}
+    default_v = _require_mapping(versioning.get("default"), "versioning.default")
     _check_versioning_values(default_v, "versioning.default")
     versioning_default = Versioning(
         enable_versioning=_strict_bool(default_v, "enable_versioning", "versioning.default"),
@@ -309,7 +311,9 @@ def load_mapping(mapping_path: Path) -> MappingBundle:
         entities=entities,
         cross_site_reference_columns=cross_site,
         versioning_default=versioning_default,
-        versioning_overrides=dict(versioning.get("overrides") or {}),
+        versioning_overrides=dict(
+            _require_mapping(versioning.get("overrides"), "versioning.overrides"),
+        ),
         enum_sources=enum_source_paths,
         watched_lists=watched,
         polymorphic_patterns=polymorphic,
@@ -975,7 +979,7 @@ def _parse_permissions(raw: dict[str, Any]) -> PermissionsConfig | None:
     # All three sections are optional; default to empty / no default policy.
     raw_levels = raw.get("permission_levels", [])
     raw_groups = raw.get("groups", [])
-    raw_list_perms = raw.get("list_permissions") or {}
+    raw_list_perms = _require_mapping(raw.get("list_permissions"), "list_permissions")
     _reject_unknown_keys(raw_list_perms, {"default", "overrides"}, "list_permissions")
 
     for i, lvl in enumerate(raw_levels):
@@ -1032,7 +1036,9 @@ def _parse_permissions(raw: dict[str, Any]) -> PermissionsConfig | None:
         default_policy_site_role = str(raw_scope) if raw_scope is not None else None
 
     overrides: dict[str, ListPermissionPolicy] = {}
-    for entity_name, raw_policy in (raw_list_perms.get("overrides") or {}).items():
+    for entity_name, raw_policy in _require_mapping(
+        raw_list_perms.get("overrides"), "list_permissions.overrides",
+    ).items():
         ctx = f"list_permissions.overrides.{entity_name}"
         overrides[entity_name] = _parse_policy(raw_policy, ctx)
 
@@ -1059,5 +1065,5 @@ def _load_retention(path: Path) -> tuple[dict[str, RetentionPolicy], dict[str, s
         )
         for name, spec in raw["policies"].items()
     }
-    list_defaults = dict(raw.get("list_defaults") or {})
+    list_defaults = dict(_require_mapping(raw.get("list_defaults"), "list_defaults"))
     return policies, list_defaults
