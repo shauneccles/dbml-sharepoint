@@ -29,10 +29,18 @@ jobs:
       - name: Type-check
         run: uv run mypy
       - name: Tests
-        # `--cov` only; everything else is configured in pyproject.toml, so
-        # a local run and this one measure the same thing. Off by default
-        # locally because it roughly doubles the suite.
-        run: uv run pytest --cov
+        # Two flags only; everything else is configured in pyproject.toml, so
+        # a local run and this one measure the same thing.
+        #
+        # `--cov` is off by default locally because it roughly doubles the
+        # suite. `--check-finding-reachability` is off by default because it is
+        # only meaningful over a WHOLE run -- on `pytest test/test_joins.py` it
+        # would report almost every rule unreached, which is noise, not a
+        # finding. The two are not redundant: coverage is an aggregate floor
+        # and cannot see one rule stop firing (measured -- deleting the only
+        # test that fires `display_title_too_long` leaves coverage at 95.21%,
+        # over the floor, while the reachability gate names the rule).
+        run: uv run pytest --cov --check-finding-reachability
       - name: Build both examples end-to-end
         run: |
           uv run dbml-sharepoint build --schema examples/minimal/schema.dbml --mapping examples/minimal/mapping.yaml --release examples/minimal/release.yaml --site-url https://example.sharepoint.com/sites/ci --site-role default --out examples/minimal/build

@@ -108,14 +108,24 @@ it (`gh stack`), so each layer keeps its own title and its own changelog entry.
   commit the real diff.
 - **A new validator rule needs a test that makes it FIRE.** Referencing the
   code is not enough — `test_every_code_can_actually_be_produced` is a static
-  check and says so. Coverage is how you see the difference:
+  check and says so. Two things watch this, and they are not interchangeable:
 
   ```bash
-  uv run pytest --cov          # config lives in pyproject.toml
+  uv run pytest --cov                        # aggregate floor
+  uv run pytest --check-finding-reachability # per-rule, names the offender
   ```
 
-  It is off by default locally (it roughly doubles the run) and on in CI,
-  where it fails under the configured floor.
+  Both are off by default locally and on in CI; config lives in
+  `pyproject.toml` and `test/_reachability.py`. Coverage roughly doubles the
+  run; reachability is only meaningful over a whole suite.
+
+  **The floor cannot do the reachability job.** It is one number over ~6,000
+  branches, so a single rule that stops firing vanishes into it and unrelated
+  gains offset it indefinitely — measured: deleting the only test that fires
+  `display_title_too_long` leaves coverage at 95.21%, comfortably over the 95
+  floor, while the reachability gate names the rule. Codes not reached yet live
+  in `_reachability.NOT_YET_REACHED`, which is a ratchet: entries come out, and
+  one going in needs a reason in the pull request.
 - **Emitted JS.** For template changes, build an example and `node --check` the
   emitted scripts.
 - **`uv run pytest` runs with `filterwarnings = ["error"]`.** A new dependency

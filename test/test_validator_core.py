@@ -236,8 +236,11 @@ def test_unique_is_rejected_for_unsupported_sharepoint_types(
 # referenced and completely unexercised, which is the failure class this
 # project exists to close, pointed at the validator itself.
 #
-# Measured, not guessed: see #98 for the coverage-intersection method and the
-# `test_every_finding_code_is_reached` guard that keeps the count at zero.
+# Measured, not guessed: see #98 for the coverage-intersection method that
+# found them. What keeps the count from growing back is the reachability gate
+# in `conftest.py` -- `uv run pytest --check-finding-reachability`, which fails
+# when a declared code outside `_reachability.NOT_YET_REACHED` is never
+# constructed. That allowlist is a ratchet and only shrinks.
 
 
 def test_a_duplicate_table_name_is_an_error() -> None:
