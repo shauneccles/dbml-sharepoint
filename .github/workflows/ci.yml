@@ -29,7 +29,10 @@ jobs:
       - name: Type-check
         run: uv run mypy
       - name: Tests
-        run: uv run pytest
+        # `--cov` only; everything else is configured in pyproject.toml, so
+        # a local run and this one measure the same thing. Off by default
+        # locally because it roughly doubles the suite.
+        run: uv run pytest --cov
       - name: Build both examples end-to-end
         run: |
           uv run dbml-sharepoint build --schema examples/minimal/schema.dbml --mapping examples/minimal/mapping.yaml --release examples/minimal/release.yaml --site-url https://example.sharepoint.com/sites/ci --site-role default --out examples/minimal/build

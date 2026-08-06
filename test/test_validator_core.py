@@ -21,6 +21,7 @@ from _paths import FIXTURES
 
 from dbml_sharepoint.analysis.findings import FindingCode, Location, Section
 from dbml_sharepoint.analysis.validator import (
+    MAX_INTERNAL_NAME,
     Finding,
     validate,
     validate_against_mapping,
@@ -35,7 +36,9 @@ from dbml_sharepoint.model.mapping_loader import (
     MappingBundle,
     PermissionsConfig,
     Principal,
+    RetentionPolicy,
     RoleAssignment,
+    SiteGroup,
     load_mapping,
 )
 from dbml_sharepoint.model.parser import (
@@ -222,6 +225,111 @@ def test_unique_is_rejected_for_unsupported_sharepoint_types(
     assert finding.severity == "error"
     # The type is the parameter under test and the thing the author must change.
     assert column_type in finding.message
+
+# --- The schema-level rules, which nothing reached at runtime ---------------
+#
+# Six rules whose construction sites no test executed. They are the cheapest
+# checks in the codebase and the ones a first-time author is most likely to
+# trip, and they were invisible for a structural reason worth recording: 132
+# call sites in this suite go through `validate_against_mapping`, while every
+# one of these surfaces from `validate`. A rule can be documented, statically
+# referenced and completely unexercised, which is the failure class this
+# project exists to close, pointed at the validator itself.
+#
+# Measured, not guessed: see #98 for the coverage-intersection method and the
+# `test_every_finding_code_is_reached` guard that keeps the count at zero.
+
+
+def test_a_duplicate_table_name_is_an_error() -> None:
+    findings = validate(make_schema(make_table("Risk"), make_table("Risk")))
+
+    assert only(findings, FindingCode.DUPLICATE_TABLE_NAME).severity == "error"
+
+
+def test_a_duplicate_column_name_is_an_error() -> None:
+    """Duplicated within one table, not across two -- two tables may each
+    have a `Title`, and only the within-table clash is a name collision on
+    the provisioned list."""
+    findings = validate(make_schema(
+        make_table("Risk", make_column("Title"), make_column("Title")),
+    ))
+
+    finding = only(findings, FindingCode.DUPLICATE_COLUMN_NAME)
+    assert finding.severity == "error"
+    assert "Title" in finding.message
+
+
+def test_two_tables_may_each_declare_the_same_column_name() -> None:
+    """The other half of the rule above: these become separate SharePoint
+    lists, so `Risk.Title` and `Task.Title` are not a collision. Without this
+    the rule could be "fixed" into refusing every schema in the repository
+    and the test above would still pass."""
+    findings = validate(make_schema(
+        make_table("Risk", make_column("Title")),
+        make_table("Task", make_column("Title")),
+    ))
+
+    none_of(findings, FindingCode.DUPLICATE_COLUMN_NAME)
+
+
+def test_a_duplicate_enum_name_is_an_error() -> None:
+    findings = validate(make_schema(
+        make_table("Risk", make_column("Status", "status")),
+        enums=[make_enum("status", "Open"), make_enum("status", "Shut")],
+    ))
+
+    assert only(findings, FindingCode.DUPLICATE_ENUM_NAME).severity == "error"
+
+
+def test_an_enum_with_no_members_is_a_warning() -> None:
+    """A warning rather than an error: an empty enum provisions a Choice
+    column with no choices, which is useless but not unsafe."""
+    findings = validate(make_schema(
+        make_table("Risk", make_column("Status", "status")),
+        enums=[make_enum("status")],
+    ))
+
+    assert only(findings, FindingCode.EMPTY_ENUM).severity == "warning"
+
+
+@pytest.mark.parametrize("illegal", [" ", "!", "@", ":", "/", "\\", "'", "<"])
+def test_an_illegal_character_in_a_column_name_is_an_error(illegal: str) -> None:
+    """Parametrised over a sample of the refused set rather than testing one.
+
+    The rule is a single `any(c in name for c in ...)` over a hand-written
+    character string, so a character silently dropped from that string is
+    exactly the regression this cannot otherwise see -- and a one-character
+    test would keep passing through it.
+    """
+    findings = validate(make_schema(
+        make_table("Risk", make_column(f"Bad{illegal}Name")),
+    ))
+
+    assert only(findings, FindingCode.ILLEGAL_COLUMN_NAME_CHARACTER).severity == "error"
+
+
+def test_a_column_name_at_the_limit_is_accepted() -> None:
+    """The boundary, from the constant rather than a literal 32.
+
+    A test written against a hard-coded length passes while disagreeing with
+    the rule it is meant to pin, the moment somebody changes the constant.
+    """
+    findings = validate(make_schema(
+        make_table("Risk", make_column("A" * MAX_INTERNAL_NAME)),
+    ))
+
+    none_of(findings, FindingCode.COLUMN_NAME_TOO_LONG)
+
+
+def test_a_column_name_over_the_limit_is_an_error() -> None:
+    findings = validate(make_schema(
+        make_table("Risk", make_column("A" * (MAX_INTERNAL_NAME + 1))),
+    ))
+
+    finding = only(findings, FindingCode.COLUMN_NAME_TOO_LONG)
+    assert finding.severity == "error"
+    assert str(MAX_INTERNAL_NAME) in finding.message
+
 
 def test_orphan_enum_is_warning() -> None:
     findings = validate(
@@ -851,3 +959,207 @@ def test_validate_all_is_the_sum_of_its_parts() -> None:
         + extension.extra_validators(bundle, schema)
     )
     assert findings == expected
+
+
+# --- Rules that fired for nobody --------------------------------------------
+#
+# Second batch for #98. Each of these is a shipped, documented rule whose
+# construction site no test executed. They are grouped by the mapping section
+# they police rather than by module, because that is how somebody hitting one
+# will look for it.
+
+
+def test_an_entity_the_schema_does_not_declare_is_an_error() -> None:
+    """The mapping names a list the DBML never defines, so there is nothing
+    to provision it from."""
+    findings = validate_against_mapping(
+        make_schema(make_table("Risk")), make_bundle(entities=["Risk", "Ghost"]),
+    )
+
+    finding = only(findings, FindingCode.ENTITY_NOT_IN_SCHEMA)
+    assert finding.severity == "error"
+    assert "Ghost" in finding.message
+
+
+def test_a_cross_site_reference_to_an_unknown_column_is_an_error() -> None:
+    findings = validate_against_mapping(
+        make_schema(make_table("Risk")),
+        make_bundle(
+            entities=["Risk"],
+            cross_site_reference_columns=[CrossSiteRef(entity="Risk", column="Nope")],
+        ),
+    )
+
+    assert only(findings, FindingCode.CROSS_SITE_UNKNOWN_COLUMN).severity == "error"
+
+
+def test_a_cross_site_column_without_a_ref_is_an_error() -> None:
+    """A cross-site column is a lookup that happens to point off-site, so it
+    must still declare what it points AT."""
+    findings = validate_against_mapping(
+        make_schema(make_table("Risk", make_column("Owner"))),
+        make_bundle(
+            entities=["Risk"],
+            cross_site_reference_columns=[CrossSiteRef(entity="Risk", column="Owner")],
+        ),
+    )
+
+    assert only(findings, FindingCode.CROSS_SITE_COLUMN_HAS_NO_REF).severity == "error"
+
+
+def test_a_cross_site_column_whose_generated_name_would_be_too_long_is_an_error(
+) -> None:
+    """A cross-site column expands to `<name>Abbreviation` and `<name>SiteUrl`
+    at deploy time, so the DECLARED name can be legal while the generated one
+    is not -- which SharePoint would refuse at field creation."""
+    long_name = "A" * (MAX_INTERNAL_NAME - len("Abbreviation") + 1)
+    findings = validate_against_mapping(
+        make_schema(make_table("Risk", make_ref(long_name, "Risk.Id"))),
+        make_bundle(
+            entities=["Risk"],
+            cross_site_reference_columns=[
+                CrossSiteRef(entity="Risk", column=long_name),
+            ],
+        ),
+    )
+
+    finding = only(findings, FindingCode.CROSS_SITE_GENERATED_NAME_TOO_LONG)
+    assert finding.severity == "error"
+    assert "Abbreviation" in finding.message
+
+
+def test_a_group_owned_by_an_undeclared_group_is_an_error() -> None:
+    """`owner_group` must name a built-in or one this mapping declares;
+    anything else cannot be resolved when the group is created."""
+    findings = validate_against_mapping(
+        make_schema(make_table("Risk")),
+        make_bundle(
+            entities=["Risk"],
+            permissions=PermissionsConfig(
+                levels=[],
+                groups=[SiteGroup(
+                    name="APP_Owners", description="", owner_group="Nobody",
+                    allow_members_edit_membership=False,
+                    allow_request_to_join_leave=False,
+                    auto_accept_request_to_join_leave=False,
+                    only_allow_members_view_membership=False,
+                    require_empty_at_deploy=False,
+                    enroll_operator_during_deploy=False,
+                )],
+                default_policy=None,
+                overrides={},
+            ),
+        ),
+    )
+
+    finding = only(findings, FindingCode.UNKNOWN_OWNER_GROUP)
+    assert finding.severity == "error"
+    assert "Nobody" in finding.message
+
+
+def test_an_acl_naming_an_undeclared_group_is_an_error() -> None:
+    """A list ACL granting to a group nothing declares would fail at deploy
+    time, when `sitegroups/getbyname` cannot resolve it."""
+    findings = validate_against_mapping(
+        make_schema(make_table("Risk")),
+        make_bundle(
+            entities=["Risk"],
+            permissions=PermissionsConfig(
+                levels=[],
+                groups=[],
+                default_policy=ListPermissionPolicy(
+                    break_inheritance=True,
+                    assignments=[RoleAssignment(
+                        principal=Principal(kind="group", name="APP_Ghost"),
+                        level="Read",
+                    )],
+                    reconcile_mode="configured",
+                ),
+                overrides={},
+            ),
+        ),
+    )
+
+    finding = only(findings, FindingCode.UNKNOWN_PRINCIPAL_GROUP)
+    assert finding.severity == "error"
+    assert "APP_Ghost" in finding.message
+
+
+def test_a_display_name_override_longer_than_the_sp_limit_is_an_error() -> None:
+    """SharePoint caps a column's display title at 255 characters.
+
+    DOCUMENTED, not inferred. `Field element (Field)` on Microsoft Learn --
+    which lists SharePoint Online among the products it applies to -- says of
+    the `DisplayName` attribute: "The displayed name for a field. There is no
+    restriction on use of spaces. Maximum length is 255 characters." That page
+    also states the display name "is used as a column heading when the field is
+    displayed in a table view and as a form label when the field is displayed
+    in a form", which is the surface this project sets.
+
+    https://learn.microsoft.com/sharepoint/dev/schema/field-element-field
+
+    255 is therefore the last ACCEPTED length, not the first rejected one --
+    see the companion test below, which pins that boundary from the other side
+    so the rule cannot quietly become stricter than the documented cap.
+    """
+    findings = validate_against_mapping(
+        make_schema(make_table("Risk", make_column("Owner"))),
+        make_bundle(
+            entities=["Risk"],
+            # The whole display-name check is gated on a mode being declared,
+            # so a bundle without one skips it and the override is never read.
+            display_name_mode="title-case",
+            display_name_overrides={"Risk": {"Owner": "T" * 256}},
+        ),
+    )
+
+    assert only(findings, FindingCode.DISPLAY_TITLE_TOO_LONG).severity == "error"
+
+
+def test_a_display_name_override_at_the_sp_limit_is_accepted() -> None:
+    """Exactly 255 characters is legal, so the rule must not reject it.
+
+    The other side of the boundary, and the half that AGENTS.md's "an enforced
+    rule must never be stronger than what the reference implementation actually
+    satisfies" corollary is about. Asserting only that 256 fails leaves `>= 255`
+    -- or any tighter cap -- indistinguishable from the documented `> 255`, and
+    a rule stricter than Learn documents rejects mappings SharePoint would
+    accept. Learn's citation is on the companion test above.
+    """
+    findings = validate_against_mapping(
+        make_schema(make_table("Risk", make_column("Owner"))),
+        make_bundle(
+            entities=["Risk"],
+            display_name_mode="title-case",
+            display_name_overrides={"Risk": {"Owner": "T" * 255}},
+        ),
+    )
+
+    none_of(findings, FindingCode.DISPLAY_TITLE_TOO_LONG)
+
+
+def test_a_list_default_naming_an_unknown_retention_policy_is_an_error() -> None:
+    """`retention_list_defaults` points at a policy by name; a name no
+    policy file declares cannot be applied.
+
+    A policy must exist for this to fire at all, and that is deliberate:
+    `_sources` gates the whole block on `bundle.retention_policies` so that a
+    bundle carrying list defaults with no policies loaded does not error on
+    every entry. The first version of this test asserted against that
+    decision and found the rule silent -- correctly.
+    """
+    findings = validate_against_mapping(
+        make_schema(make_table("Risk")),
+        make_bundle(
+            entities=["Risk"],
+            retention_policies={"three-years": RetentionPolicy(
+                name="three-years", description="", sp_label="3y",
+                retain_years=3, retain_days=0, trigger="created",
+            )},
+            retention_list_defaults={"Risk": "seven-years"},
+        ),
+    )
+
+    finding = only(findings, FindingCode.UNKNOWN_RETENTION_POLICY)
+    assert finding.severity == "error"
+    assert "seven-years" in finding.message

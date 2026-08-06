@@ -106,6 +106,16 @@ it (`gh stack`), so each layer keeps its own title and its own changelog entry.
 - **Regenerate the API reference** when Python signatures, docstrings or template
   contract comments change: `uv run python website/scripts/generate_api.py`, then
   commit the real diff.
+- **A new validator rule needs a test that makes it FIRE.** Referencing the
+  code is not enough — `test_every_code_can_actually_be_produced` is a static
+  check and says so. Coverage is how you see the difference:
+
+  ```bash
+  uv run pytest --cov          # config lives in pyproject.toml
+  ```
+
+  It is off by default locally (it roughly doubles the run) and on in CI,
+  where it fails under the configured floor.
 - **Emitted JS.** For template changes, build an example and `node --check` the
   emitted scripts.
 - **`uv run pytest` runs with `filterwarnings = ["error"]`.** A new dependency
