@@ -66,13 +66,45 @@ expected ',' or '}', but got '<stream end>'
 That covers what the YAML and DBML parsers reject, and the loader's own
 checks — an unknown key, a missing required one, a value of the wrong kind.
 
-It does **not** yet cover a section whose *shape* is wrong where the loader
-then indexes into it: `entities: []` parses as valid YAML and reaches
-`raw["entities"].items()`, which raises `AttributeError` and prints a
-traceback. `_CONFIG_ERRORS` deliberately does not catch that class, because
-an unexpected error really is a bug in the tool and must keep its stack — so
-closing this means the loader validating the shape, not the CLI widening what
-it swallows. Tracked in #141.
+It also covers a section whose *shape* is wrong — valid YAML, wrong kind of
+value — for every section read as a mapping of names:
+
+```console
+$ dbml-sharepoint build --mapping ./mapping.yaml …
+[ERROR] mapping ./mapping.yaml: views: expected a mapping of names, got list
+```
+
+Note this refuses `views: []` as well as a populated list. An empty sequence
+where a mapping belongs used to be swallowed by the loader's `or {}`, so the
+section loaded as empty and the build reported success having deployed none
+of what was written there — the same typo as the populated case, failing
+silently instead of loudly.
+
+This is a rule about **shape, not emptiness**. Declaring no views is
+entirely valid and is not what this refuses — omitting the section, `views:`
+with nothing under it, and `views: {}` are all accepted, and every
+non-`DocumentLibrary` list still gets the generated `All Items` view
+regardless (authors are in fact forbidden from declaring one).
+
+`{}` and `[]` are not two ways of writing "empty". These sections are keyed
+by name: `{}` is that structure with zero entries, `[]` is a different
+structure. The shipped mappings already depend on the distinction —
+
+```yaml
+enum_sources: {}                 # keyed by name
+versioning:
+  overrides: {}                  # keyed by name
+watched_lists: []                # a list
+permission_levels: []            # a list
+```
+
+— so `[]` under a name-keyed section says the author has the wrong shape in
+mind, which is worth catching before they populate it.
+
+The guard lives in the loader, not the CLI. `_CONFIG_ERRORS` deliberately
+does not catch `AttributeError`/`TypeError`, because an unexpected error
+really is a bug in the tool and must keep its stack; widening it would have
+dressed every genuine loader bug up as a bad mapping file. Closed by #141.
 
 ## `report`
 

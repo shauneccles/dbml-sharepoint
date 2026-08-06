@@ -1090,3 +1090,35 @@ def test_a_refused_build_still_reports_its_warnings(tmp_path: Path) -> None:
     assert result.exit_code == 1
     assert "unknown_column_type" in result.output
     assert "unique_without_not_null" in result.output
+
+
+def test_a_wrong_section_shape_is_a_message_not_a_traceback(tmp_path: Path) -> None:
+    """The loader guard has to survive the trip to the terminal.
+
+    `test_mapping_loader` proves the ValueError is raised and names the
+    section; this proves the CLI renders it as one sentence. The two are
+    genuinely separate: `cli._CONFIG_ERRORS` lists the exception types it
+    turns into a message, and a guard that raised the wrong type would pass
+    every loader test and still print a stack here.
+
+    Deliberately not widening `_CONFIG_ERRORS` to AttributeError/TypeError,
+    which is the other way to make this pass -- that would dress every
+    genuine loader bug up as a bad mapping file. See #141.
+    """
+    mapping = _bad_mapping(tmp_path, "views:\n  - Project\n")
+    result = _cli(
+        "build",
+        "--schema", str(FIXTURES / "simple.dbml"),
+        "--mapping", str(mapping),
+        "--release", str(FIXTURES / "release.yaml"),
+        "--site-url", "https://example.sharepoint.com/sites/test",
+        "--out", str(tmp_path / "build"),
+    )
+    output = result.stdout + result.stderr
+    assert result.returncode == 1, result.stderr
+    assert "Traceback" not in output, output
+    assert "mapping_loader.py" not in output, output
+    assert "AttributeError" not in output, output
+    # Names the section, so the operator knows which line to look at.
+    assert "views" in output
+    assert len([ln for ln in output.splitlines() if ln.strip()]) <= 2, output
