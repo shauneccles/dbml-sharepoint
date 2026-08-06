@@ -55,10 +55,17 @@ by the core CLI and any extension project CLIs that compose it. Raises
 ### `build`
 
 ```python
-def build(schema: pathlib.Path = ..., mapping: pathlib.Path = ..., release: pathlib.Path = ..., site_url: str = ..., site_role: str = ..., out: pathlib.Path = ..., dry_run: bool = ..., seed: bool = ..., extension: str | None = ...) -> None
+def build(schema: pathlib.Path | None = ..., mapping: pathlib.Path | None = ..., release: pathlib.Path | None = ..., site_url: str = ..., site_role: str = ..., out: pathlib.Path = ..., dry_run: bool = ..., seed: bool = ..., extension: str | None = ...) -> None
 ```
 
 Generate deploy.js.txt + manifest from the DBML schema and mapping.
+
+Resolves the three input paths here rather than inside `execute_build`:
+the defaults are a convenience for a person at a terminal, and
+`execute_build` is the programmatic entry point the wizard and extension
+CLIs compose. Those callers know exactly which files they mean, and a
+path that silently came from the working directory would be a surprise
+in a library call.
 
 ### `execute_build`
 
@@ -80,7 +87,7 @@ for the same failures. The wizard catches it.
 ### `report`
 
 ```python
-def report(schema: pathlib.Path = ..., mapping: pathlib.Path = ..., site_role: str = ..., out: pathlib.Path = ..., release: pathlib.Path | None = ...) -> None
+def report(schema: pathlib.Path | None = ..., mapping: pathlib.Path | None = ..., site_role: str = ..., out: pathlib.Path = ..., release: pathlib.Path | None = ...) -> None
 ```
 
 Generate reporting queries (Power Query M + SQL views) from the schema.

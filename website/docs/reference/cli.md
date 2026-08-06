@@ -17,15 +17,32 @@ manifests, reporting, index.md, checksums.txt — plus demo-data.js.txt with
 
 | Option | Default | Meaning |
 |---|---|---|
-| `--schema PATH` | required | Path to the DBML schema file |
-| `--mapping PATH` | required | Path to the mapping YAML |
-| `--release PATH` | required | Path to release.yaml |
+| `--schema PATH` | `10-design/schema.dbml` | Path to the DBML schema file |
+| `--mapping PATH` | `20-configure/mapping.yaml` | Path to the mapping YAML |
+| `--release PATH` | `20-configure/release.yaml` | Path to release.yaml |
 | `--site-url URL` | required | Target SharePoint site URL |
 | `--site-role ROLE` | `default` | Which entities deploy here; must match a `site_role` declared by the mapping's entities |
 | `--out PATH` | `./build` | Output directory |
 | `--dry-run` | off | Validate only; no JS output |
 | `--seed` | off | Also emit demo-data.js.txt from the mapping's `demo_items` |
 | `--extension NAME` | mapping's `extension:` | Extension to apply; resolved via entry points |
+
+### Running inside a project
+
+The three input paths default to the layout every shipped template uses and
+`dbml-sharepoint new` creates, so a rebuild from the project root is one flag:
+
+```bash
+dbml-sharepoint build --site-url https://yourtenant.sharepoint.com/sites/your-site
+```
+
+An explicit flag always wins. Outside a project directory, a missing input
+names the path it looked for rather than only the flag.
+
+`--site-url` is deliberately **not** given a remembered default. A wrong
+file path fails loudly on the next line; a wrong target produces a bundle
+armed for somebody else's tenant, with only the script's wrong-site guard
+between that and a mispaste.
 
 Behaviour worth knowing:
 
@@ -94,11 +111,16 @@ that no longer exists.
 
 | Option | Default | Meaning |
 |---|---|---|
-| `--schema PATH` | required | Path to the DBML schema file |
-| `--mapping PATH` | required | Path to the mapping YAML |
+| `--schema PATH` | `10-design/schema.dbml` | Path to the DBML schema file |
+| `--mapping PATH` | `20-configure/mapping.yaml` | Path to the mapping YAML |
 | `--site-role ROLE` | `default` | Which entities to include |
 | `--out PATH` | `./reports` | Output directory |
-| `--release PATH` | optional | Stamp release provenance into the outputs |
+| `--release PATH` | `20-configure/release.yaml` when present | Stamp release provenance into the outputs |
+
+Inside a project directory that makes the whole command `dbml-sharepoint
+report`. `--release` stays genuinely optional — an unstamped dictionary is
+a supported result, so unlike the other two a missing release.yaml is not
+a refusal; it is simply picked up when it is there.
 
 ## `version`
 

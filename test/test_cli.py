@@ -1,18 +1,32 @@
 import hashlib
+import re
+import shutil
 import subprocess
 import sys
 from pathlib import Path
 
+import pytest
 from _builders import ID_PK, table
 from _packs import blocks, entities, replaced, with_tail, write_dbml, write_mapping
-from _paths import FIXTURES, PACKAGE
+from _paths import FIXTURES, PACKAGE, SOLUTION_TEMPLATES
 from typer.testing import CliRunner, Result
 
 from dbml_sharepoint import __version__
+from dbml_sharepoint.catalogue import (
+    RELEASE_RELPATH,
+    SCHEMA_RELPATH,
+)
 from dbml_sharepoint.cli import app
 from dbml_sharepoint.extension import BaseExtension
 
 runner = CliRunner()
+
+#: Terminal styling, stripped before any assertion about a rendered message.
+#: CI emits it and a developer terminal usually does not, which is enough on
+#: its own to make an assertion pass locally and fail on both runners --
+#: `test_help_still_renders_as_rich_panels` records the same lesson about
+#: box-drawing corners.
+_ANSI = re.compile(r"\x1b\[[0-9;]*m")
 
 
 def test_help_lists_build_command() -> None:
@@ -1090,3 +1104,226 @@ def test_a_refused_build_still_reports_its_warnings(tmp_path: Path) -> None:
     assert result.exit_code == 1
     assert "unknown_column_type" in result.output
     assert "unique_without_not_null" in result.output
+
+
+def _project(tmp_path: Path) -> Path:
+    """A directory laid out the way `dbml-sharepoint new` leaves one.
+
+    A real shipped family, copied whole, rather than three fixture files
+    posted into the standard paths. A template is not just its three
+    inputs -- the mapping references sibling files like an enum source, and
+    a hand-built stand-in that omits them tests a project shape nobody ever
+    has. Copying one is also the closest thing to what the wizard does,
+    which is the situation this default exists for.
+    """
+    root = tmp_path / "proj"
+    shutil.copytree(SOLUTION_TEMPLATES / "risk-register", root)
+    return root
+
+
+def test_build_defaults_its_inputs_to_the_project_layout(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Inside a scaffolded project the three paths are already known.
+
+    `catalogue` declares them and `test_template_standard` enforces them
+    across all 30 families, so making the operator retype them on every
+    rebuild -- the most repeated action in the tool -- was asking for
+    something we already had.
+    """
+    monkeypatch.chdir(_project(tmp_path))
+
+    result = runner.invoke(app, [
+        "build", "--site-url", "https://example.sharepoint.com/sites/test",
+    ])
+
+    assert result.exit_code == 0, result.output
+    assert (Path("build") / "deploy.js.txt").is_file()
+
+
+def test_an_explicit_path_beats_the_project_default(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A default that cannot be overridden is a trap, not a convenience."""
+    monkeypatch.chdir(_project(tmp_path))
+    missing = tmp_path / "nowhere.dbml"
+
+    result = runner.invoke(app, [
+        "build", "--schema", str(missing),
+        "--site-url", "https://example.sharepoint.com/sites/test",
+    ])
+
+    # A path that does not exist is the unambiguous probe: the project
+    # default IS present and would have built cleanly, so failing on
+    # `nowhere.dbml` can only mean the explicit value won. Asserting on a
+    # successful build with a different schema would prove the same thing
+    # far more weakly -- the two could agree by accident.
+    assert result.exit_code == 1
+    assert "nowhere.dbml" in result.output
+
+
+def test_a_missing_input_names_the_standard_path_it_looked_for(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Outside a project the error has to teach the layout.
+
+    "Missing option '--schema'" is true and useless: it does not say that
+    running from a project directory would have supplied it. The message
+    IS the feature for anyone who is not in one.
+    """
+    monkeypatch.chdir(tmp_path)
+    # Pin the rendering this assertion reads. rich lays the refusal out in a
+    # panel whose width and colour it decides from the environment, and the
+    # first version of this test asserted on that panel raw: green on a
+    # developer machine, red on both CI runners, for reasons that are nothing
+    # to do with the behaviour under test. Fixing the width and disabling
+    # colour makes the message the only variable.
+    monkeypatch.setenv("COLUMNS", "200")
+    monkeypatch.setenv("NO_COLOR", "1")
+
+    result = runner.invoke(app, [
+        "build", "--site-url", "https://example.sharepoint.com/sites/test",
+    ])
+
+    assert result.exit_code == 2
+    # Collapsed, because even at 200 columns a panel wraps somewhere and a
+    # wrap inside the path would make this a test of the terminal.
+    rendered = " ".join(_ANSI.sub("", result.output).split())
+    assert "--schema" in rendered
+    assert str(SCHEMA_RELPATH) in rendered
+
+
+def test_report_defaults_its_inputs_to_the_project_layout(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`report` is the other command driven from a project directory."""
+    monkeypatch.chdir(_project(tmp_path))
+
+    result = runner.invoke(app, ["report"])
+
+    assert result.exit_code == 0, result.output
+    assert (Path("reports") / "guide.md").is_file()
+
+
+def test_report_does_not_borrow_a_release_from_the_working_project(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Explicit inputs must not pick up the current project's provenance.
+
+    `report --schema ../other/... --mapping ../other/...` run from inside a
+    project would otherwise stamp THIS project's release tag and schema
+    version onto a data dictionary describing somebody else's schema.
+    Nothing links a release.yaml to the schema it describes, so the result
+    is not missing provenance but wrong provenance -- and the output looks
+    equally confident either way.
+    """
+    project = _project(tmp_path)
+    release_tag = (project / RELEASE_RELPATH).read_text(encoding="utf-8")
+    assert "release:" in release_tag
+    monkeypatch.chdir(project)
+
+    out = tmp_path / "reports"
+    result = runner.invoke(app, [
+        "report",
+        "--schema", str(FIXTURES / "simple.dbml"),
+        "--mapping", str(FIXTURES / "sharepoint-mapping.yaml"),
+        "--out", str(out),
+    ])
+
+    assert result.exit_code == 0, result.output
+    dictionary = (out / "data-dictionary.md").read_text(encoding="utf-8")
+    # With the project's release borrowed, the tag from its release.yaml is
+    # stamped into this dictionary -- which describes a different schema.
+    tag = next(
+        line.split(":", 1)[1].strip().strip('"')
+        for line in release_tag.splitlines()
+        if line.startswith("release:")
+    )
+    assert tag not in dictionary, f"borrowed the working project's release {tag!r}"
+
+
+def test_build_does_not_borrow_a_release_from_the_working_project(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The guard `report` already has, on the command that ships a bundle.
+
+    `report` learned this in the commit before last: infer the project's
+    release ONLY when the schema and mapping came from the project too.
+    `build` kept defaulting unconditionally, so
+    `build --schema ../other/... --mapping ../other/...` run from a project
+    directory stamped THIS project's release tag into a deploy bundle
+    describing somebody else's schema.
+
+    Measured before the fix: a bundle built from `test/fixtures/simple.dbml`
+    (release `0.1.0-test`) inside a copy of `risk-register` reported
+    "Release tag: 1.0.0" -- the risk-register value. Nothing links a
+    release.yaml to the schema it describes, so that is not missing
+    provenance but wrong provenance, on the artifact that actually gets
+    pasted into a tenant.
+
+    Refuses rather than silently skipping the stamp: unlike `report`, a
+    release is REQUIRED by `build`, so there is no unstamped mode to fall
+    back to. Naming `--release` tells the operator exactly what to supply.
+    """
+    monkeypatch.chdir(_project(tmp_path))
+
+    result = runner.invoke(app, [
+        "build",
+        "--schema", str(FIXTURES / "simple.dbml"),
+        "--mapping", str(FIXTURES / "sharepoint-mapping.yaml"),
+        "--site-url", "https://example.sharepoint.com/sites/test",
+        "--out", str(tmp_path / "build"),
+    ])
+
+    assert result.exit_code == 2, result.output
+    assert "--release" in result.output
+
+
+def test_report_stamps_the_project_release_it_discovered(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Discovery has to be observed by its EFFECT, not by exit 0.
+
+    `test_report_defaults_its_inputs_to_the_project_layout` above proves the
+    command succeeds inside a project, which it would do just as happily if
+    the release were ignored -- an unstamped dictionary is a supported
+    result, so nothing about a zero exit distinguishes "found and stamped it"
+    from "never looked". The negative case
+    (`..._does_not_borrow_a_release_...`) asserts the tag is ABSENT, so
+    without this its assertion would also hold if the tag could never appear
+    at all. This is the positive half that gives the pair meaning.
+    """
+    project = _project(tmp_path)
+    release_text = (project / RELEASE_RELPATH).read_text(encoding="utf-8")
+    tag = next(
+        line.split(":", 1)[1].strip().strip('"')
+        for line in release_text.splitlines()
+        if line.startswith("release:")
+    )
+    monkeypatch.chdir(project)
+
+    result = runner.invoke(app, ["report"])
+
+    assert result.exit_code == 0, result.output
+    dictionary = (Path("reports") / "data-dictionary.md").read_text(encoding="utf-8")
+    assert tag in dictionary, f"discovered release {tag!r} was not stamped"
+
+
+def test_report_succeeds_in_a_project_with_no_release_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A missing release.yaml is a supported mode, not a refusal.
+
+    This is what separates `--release` from the other two inputs, and the
+    reason it does not go through `_project_input`. Deleting the file from an
+    otherwise complete project is the only way to prove the difference is
+    real rather than incidental to every fixture happening to have one.
+    """
+    project = _project(tmp_path)
+    (project / RELEASE_RELPATH).unlink()
+    monkeypatch.chdir(project)
+
+    result = runner.invoke(app, ["report"])
+
+    assert result.exit_code == 0, result.output
+    assert (Path("reports") / "data-dictionary.md").is_file()
