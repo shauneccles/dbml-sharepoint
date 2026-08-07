@@ -829,13 +829,13 @@ class _StubExtension(BaseExtension):
     name: ClassVar[str] = "stub"
 
     def extra_validators(self, bundle: Any, schema: Any) -> list[Finding]:
-        return [Finding(FindingCode.EXTENSION_REPORTED, "warning", "stub extension finding")]
+        return [Finding(FindingCode.EXTENSION_WARNING, "stub extension finding")]
 
 def test_validate_all_includes_extension_findings() -> None:
     schema = parse_dbml(FIXTURES / "simple.dbml")
     bundle = load_mapping(FIXTURES / "sharepoint-mapping.yaml")
     findings = validate_all(schema, bundle, _StubExtension())
-    assert only(findings, FindingCode.EXTENSION_REPORTED).message == "stub extension finding"
+    assert only(findings, FindingCode.EXTENSION_WARNING).message == "stub extension finding"
 
 def test_validate_all_is_the_sum_of_its_parts() -> None:
     """validate_all(schema, bundle, extension) == validate(schema) +

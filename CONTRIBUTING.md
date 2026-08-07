@@ -44,7 +44,9 @@ Notes that save you a round-trip:
   fixture diff like code — it is.
 - **Generated docs.** If Python signatures, docstrings or template
   contract comments changed, regenerate the API reference and commit the
-  diff: `uv run python website/scripts/generate_api.py`.
+  diff: `uv run python website/scripts/generate_api.py`. If a `FindingCode`
+  or its entry in `analysis/finding_help.py` changed, regenerate the
+  findings reference too: `uv run python website/scripts/generate_findings.py`.
 - **Emitted JS.** For template changes, build an example and
   `node --check` the emitted scripts.
 

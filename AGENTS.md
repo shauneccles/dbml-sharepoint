@@ -106,6 +106,13 @@ it (`gh stack`), so each layer keeps its own title and its own changelog entry.
 - **Regenerate the API reference** when Python signatures, docstrings or template
   contract comments change: `uv run python website/scripts/generate_api.py`, then
   commit the real diff.
+- **Regenerate the findings reference** when a `FindingCode` or its entry in
+  `analysis/finding_help.py` changes: `uv run python
+  website/scripts/generate_findings.py`. That catalogue is the source of truth
+  for what a code means; `website/docs/reference/findings.md` and
+  `dbml-sharepoint explain` both read it, and a currency test fails on a
+  hand-edited page. Do not edit the page — it was hand-maintained once and
+  silently rotted into a document where all 194 rules stopped rendering.
 - **Emitted JS.** For template changes, build an example and `node --check` the
   emitted scripts.
 - **`uv run pytest` runs with `filterwarnings = ["error"]`.** A new dependency

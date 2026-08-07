@@ -31,7 +31,6 @@ def check(vc: ValidationContext) -> list[Finding]:
             if bare not in table_names:
                 findings.append(Finding(
                     FindingCode.UNKNOWN_ENTITY,
-                    "error",
                     f"retention list_defaults references unknown entity: {entity_name}",
                     # Prose, not a dotted path: these two messages were written
                     # before there was a convention, so `location.path`
@@ -46,7 +45,6 @@ def check(vc: ValidationContext) -> list[Finding]:
             if policy not in bundle.retention_policies:
                 findings.append(Finding(
                     FindingCode.UNKNOWN_RETENTION_POLICY,
-                    "error",
                     f"retention list_defaults[{entity_name}] = {policy} not in policies",
                     location=Location(Section.RETENTION, entity=entity_name),
                 ))
@@ -69,7 +67,6 @@ def check(vc: ValidationContext) -> list[Finding]:
         if dbml_enum is None:
             findings.append(Finding(
                 FindingCode.ENUM_SOURCE_HAS_NO_DBML_ENUM,
-                "warning",
                 f"enum_sources[{enum_name!r}] has no matching DBML enum "
                 f"{enum_name!r} in the schema.",
                 location=at_enum,
@@ -77,7 +74,6 @@ def check(vc: ValidationContext) -> list[Finding]:
         elif dbml_enum.members != choices:
             findings.append(Finding(
                 FindingCode.ENUM_MEMBERS_DIFFER,
-                "error",
                 f"DBML enum {enum_name!r} members differ from configured "
                 f"enum_sources[{enum_name!r}] -- "
                 f"DBML: {dbml_enum.members!r}; YAML: {choices!r}",

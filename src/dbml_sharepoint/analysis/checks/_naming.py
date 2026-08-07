@@ -30,7 +30,7 @@ def check(vc: ValidationContext) -> list[Finding]:
             if override_table is None or entity_name not in bundle.mapping.entities:
                 findings.append(Finding(
                     FindingCode.UNKNOWN_ENTITY,
-                    "error", f"display_names.overrides[{entity_name}]: unknown entity.",
+                    f"display_names.overrides[{entity_name}]: unknown entity.",
                     location=at_overrides,
                 ))
                 continue
@@ -40,7 +40,6 @@ def check(vc: ValidationContext) -> list[Finding]:
                 if col_name not in rendered:
                     findings.append(Finding(
                         FindingCode.COLUMN_NOT_RENDERED,
-                        "error",
                         f"display_names.overrides[{entity_name}]: {col_name!r} "
                         f"is not a rendered column of {entity_name}.",
                         location=at_overrides,
@@ -48,7 +47,6 @@ def check(vc: ValidationContext) -> list[Finding]:
                 if not display_title:
                     findings.append(Finding(
                         FindingCode.EMPTY_DISPLAY_TITLE,
-                        "error",
                         f"display_names.overrides[{entity_name}]: {col_name!r} "
                         f"resolves to an empty display title.",
                         location=at_overrides,
@@ -56,7 +54,6 @@ def check(vc: ValidationContext) -> list[Finding]:
                 elif len(display_title) > 255:
                     findings.append(Finding(
                         FindingCode.DISPLAY_TITLE_TOO_LONG,
-                        "error",
                         f"display_names.overrides[{entity_name}]: {col_name!r} "
                         f"display title exceeds 255 characters.",
                         location=at_overrides,
@@ -74,7 +71,6 @@ def check(vc: ValidationContext) -> list[Finding]:
                 if len(sources) > 1:
                     findings.append(Finding(
                         FindingCode.DUPLICATE_DISPLAY_TITLE,
-                        "error",
                         f"display_names[{table.name}]: duplicate display title "
                         f"{display_title!r} for columns {', '.join(sources)}.",
                         location=Location(Section.DISPLAY_NAMES, entity=table.name),
@@ -120,7 +116,6 @@ def check(vc: ValidationContext) -> list[Finding]:
             ):
                 findings.append(Finding(
                     FindingCode.LOOKUP_CROSSES_SITE_ROLE,
-                    "error",
                     f"{table.name}.{col.name}: lookup crosses site_role "
                     f"({source_entity.site_role} -> {target_entity.site_role}); "
                     f"SharePoint lookups cannot span webs. Declare "
@@ -142,7 +137,6 @@ def check(vc: ValidationContext) -> list[Finding]:
                 if not any(c.name == display for c in target_table.columns):
                     findings.append(Finding(
                         FindingCode.LOOKUP_DISPLAY_COLUMN_UNKNOWN,
-                        "error",
                         f"{table.name}.{col.name}: lookup target "
                         f"{col.ref.target_table} declares display_column "
                         f"{display!r}, which is not a column of "
@@ -155,7 +149,6 @@ def check(vc: ValidationContext) -> list[Finding]:
                 # No display_column and no Title → the lookup renders blank.
                 findings.append(Finding(
                     FindingCode.LOOKUP_WOULD_RENDER_BLANK,
-                    "error",
                     f"{table.name}.{col.name}: lookup target "
                     f"{col.ref.target_table} has no Title column and its mapping "
                     f"declares no display_column, so the lookup would render "

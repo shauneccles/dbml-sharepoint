@@ -41,6 +41,16 @@ CALCULATED_OUTPUT_TYPES: dict[str, int] = {
 # and nowhere else in the package.
 CALCULATED_TYPES = frozenset(CALCULATED_OUTPUT_TYPES)
 
+# The same vocabulary spelled for a human to read, because prose enumerating
+# a set is a copy of that set. The `formula_target_not_calculated` message and
+# its catalogue entry both listed "calculated_text or calculated_number" and
+# both omitted calculated_date — so the one rule that has to tell an author
+# what IS allowed named a legal type as illegal, in the terminal and in
+# `explain` alike, while `risk-register` shipped a calculated date the build
+# accepted without complaint. Derived here so a fourth type reaches every
+# sentence that lists them.
+CALCULATED_TYPE_LIST = ", ".join(sorted(CALCULATED_TYPES))
+
 # THE scalar vocabulary, for the same reason CALCULATED_TYPES lives here:
 # `map_column` below is what actually has to recognise a type, so this is the
 # one place a new scalar cannot be forgotten. It was declared in validator.py,

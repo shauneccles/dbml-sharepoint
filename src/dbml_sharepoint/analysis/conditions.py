@@ -1214,7 +1214,6 @@ def condition_findings(
     return [
         Finding(
             code,
-            "error",
             message,
             location=at if field is None else _at(at, field),
         )

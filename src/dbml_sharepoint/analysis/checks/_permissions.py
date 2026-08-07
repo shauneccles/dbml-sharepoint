@@ -42,7 +42,6 @@ def check(vc: ValidationContext) -> list[Finding]:
         if scope is not None and scope not in known_roles:
             findings.append(Finding(
                 FindingCode.UNKNOWN_SITE_ROLE,
-                "error",
                 f"list_permissions.default.site_role: unknown site role "
                 f"{scope!r} (mapping declares: {', '.join(sorted(known_roles))}).",
                 location=Location(
@@ -61,7 +60,6 @@ def check(vc: ValidationContext) -> list[Finding]:
             if key in seen_level_names:
                 findings.append(Finding(
                     FindingCode.DUPLICATE_PERMISSION_LEVEL_NAME,
-                    "error",
                     f"permission_levels: duplicate name {lvl.name!r}"
                     + (f" (differs from {seen_level_names[key]!r} only in case; "
                        f"SharePoint treats them as one)"
@@ -76,7 +74,6 @@ def check(vc: ValidationContext) -> list[Finding]:
                 if bit not in BASE_PERMISSIONS:
                     findings.append(Finding(
                         FindingCode.UNKNOWN_BASE_PERMISSION,
-                        "error",
                         f"permission_levels[{lvl.name!r}]: unknown base permission {bit!r}",
                         location=_LEVELS,
                     ))
@@ -90,7 +87,6 @@ def check(vc: ValidationContext) -> list[Finding]:
             if key in seen_group_names:
                 findings.append(Finding(
                     FindingCode.DUPLICATE_GROUP_NAME,
-                    "error",
                     f"groups: duplicate name {grp.name!r}"
                     + (f" (differs from {seen_group_names[key]!r} only in case; "
                        f"SharePoint treats them as one)"
@@ -108,7 +104,6 @@ def check(vc: ValidationContext) -> list[Finding]:
             if not owner_ok:
                 findings.append(Finding(
                     FindingCode.UNKNOWN_OWNER_GROUP,
-                    "error",
                     f"groups[{grp.name!r}]: owner_group {grp.owner_group!r} is not a "
                     f"built-in SP group or a declared custom group",
                     location=_GROUPS,
@@ -134,7 +129,6 @@ def check(vc: ValidationContext) -> list[Finding]:
                 if lvl not in all_level_names:
                     findings.append(Finding(
                         FindingCode.UNKNOWN_PERMISSION_LEVEL,
-                        "error",
                         f"{ctx}.assignments[{i}]: level {lvl!r} is not a built-in "
                         f"or declared custom permission level",
                         location=at,
@@ -153,7 +147,6 @@ def check(vc: ValidationContext) -> list[Finding]:
                     # at deploy time.
                     findings.append(Finding(
                         FindingCode.UNRESOLVABLE_ASSOCIATED_GROUP_ALIAS,
-                        "error",
                         f"{ctx}.assignments[{i}]: principal group "
                         f"{principal.name!r} is a built-in associated-group "
                         f"alias that cannot be resolved by name at deploy time "
@@ -164,7 +157,6 @@ def check(vc: ValidationContext) -> list[Finding]:
                 elif principal.name not in all_group_names:
                     findings.append(Finding(
                         FindingCode.UNKNOWN_PRINCIPAL_GROUP,
-                        "error",
                         f"{ctx}.assignments[{i}]: principal group {principal.name!r} "
                         f"is not a built-in or declared custom group",
                         location=at,
@@ -183,7 +175,6 @@ def check(vc: ValidationContext) -> list[Finding]:
                 # does not declare, and the fix is usually the prefix.
                 findings.append(Finding(
                     FindingCode.UNKNOWN_TABLE,
-                    "error",
                     f"list_permissions.overrides: key {entity_name!r} is not a "
                     "known DBML table name (use unprefixed name, "
                     "e.g. 'Ticket' not 'APP_Ticket')",

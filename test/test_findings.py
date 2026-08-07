@@ -6,6 +6,9 @@ path in a message is derived from structured data rather than being the only
 place that data exists.
 """
 
+import dataclasses
+import inspect
+
 import pytest
 from _findings import none_of, only
 from _paths import PACKAGE
@@ -42,13 +45,22 @@ def test_finding_is_hashable_and_frozen() -> None:
     check that produced it has returned."""
     f = Finding(
         code=FindingCode.UNKNOWN_ENTITY,
-        severity="error",
         message="views[Risk]: unknown entity.",
         location=Location(Section.VIEWS, entity="Risk"),
     )
     assert {f, f} == {f}
-    with pytest.raises(AttributeError):
-        f.severity = "warning"  # type: ignore[misc]
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        f.message = "something else"  # type: ignore[misc]
+
+    # `severity` is a read-only property now rather than a field, so the
+    # interesting assertion is that there is nowhere to write it -- not which
+    # exception a write raises. On a frozen slots dataclass an assignment to a
+    # non-field attribute surfaces as TypeError from the generated
+    # `__setattr__`, which is a CPython implementation detail and not a
+    # contract worth pinning.
+    severity = inspect.getattr_static(Finding, "severity")
+    assert isinstance(severity, property)
+    assert severity.fset is None
 
 
 def test_every_code_is_screaming_snake_case() -> None:
@@ -88,7 +100,7 @@ def test_severity_is_declared_exactly_once() -> None:
 
 
 def test_only_returns_the_single_finding_with_that_code() -> None:
-    f = Finding(FindingCode.UNKNOWN_ENTITY, "error", "x")
+    f = Finding(FindingCode.UNKNOWN_ENTITY, "x")
     assert only([f], FindingCode.UNKNOWN_ENTITY) is f
 
 
@@ -97,37 +109,30 @@ def test_only_names_what_it_found_when_the_code_is_absent() -> None:
     interesting part -- which rule fired instead is."""
     with pytest.raises(AssertionError, match="unknown_entity"):
         only(
-            [Finding(FindingCode.UNKNOWN_ENTITY, "error", "x")],
+            [Finding(FindingCode.UNKNOWN_ENTITY, "x")],
             FindingCode.EXTENSION_REPORTED,
         )
 
 
 def test_none_of_names_the_offender() -> None:
     with pytest.raises(AssertionError, match="expected no unknown_entity"):
-        none_of([Finding(FindingCode.UNKNOWN_ENTITY, "error", "boom")],
+        none_of([Finding(FindingCode.UNKNOWN_ENTITY, "boom")],
                 FindingCode.UNKNOWN_ENTITY)
 
 
-def test_every_code_is_documented() -> None:
-    """The enum is the rule catalogue, so the catalogue has to be readable.
-
-    A code with no row is a rule nobody can look up. A row with no code is a
-    rule that no longer exists and will mislead the next reader. Four agents
-    classified 194 rules across disjoint modules and every one of them
-    maintained this file by hand; nothing until now checked that they agreed.
-    """
-    import re
-
-    doc = PACKAGE.parent.parent / "website" / "docs" / "reference" / "findings.md"
-    rows = {
-        m.group(1)
-        for m in re.finditer(
-            r"^\| `([a-z0-9_]+)` \|", doc.read_text(encoding="utf-8"), re.MULTILINE,
-        )
-    }
-    declared = {str(c) for c in FindingCode}
-    assert declared - rows == set(), f"undocumented: {sorted(declared - rows)}"
-    assert rows - declared == set(), f"stale rows: {sorted(rows - declared)}"
+# `test_every_code_is_documented` used to live here. It read
+# `website/docs/reference/findings.md`, regex-matched row-shaped lines and
+# compared that set of codes against `FindingCode` in both directions.
+#
+# It passed for as long as the page was unreadable. The file had lost every
+# blank line, grown a second `# ` title and an orphaned `sidebar_position: 4`
+# in its body, so all 194 rules rendered as one run-on paragraph instead of a
+# table -- and none of that changes the SET of codes on row-shaped lines. The
+# test checked the data and never the artifact, which is the whole lesson.
+#
+# The catalogue now lives in `analysis/finding_help.py`, the page is generated
+# from it, and `test_finding_help.py` guards the pair by byte equality against
+# the generator's own output. That cannot be satisfied by a broken document.
 
 
 def test_no_finding_is_unclassified() -> None:
@@ -153,19 +158,48 @@ def test_every_code_can_actually_be_produced() -> None:
     rather than an allowlist. Recorded so the gap is known rather than implied
     away by this test's name.
     """
-    import re
+    import ast
 
-    src = "\n".join(
-        p.read_text(encoding="utf-8")
-        for p in PACKAGE.rglob("*.py")
-        if p.name != "findings.py"
-    )
-    referenced = set(re.findall(r"FindingCode\.([A-Z][A-Z0-9_]*)", src))
+    # `finding_help.py` is excluded for the same reason `findings.py` is, and
+    # the reason is sharper: the catalogue names EVERY code by construction,
+    # so counting it as a reference would make this test vacuous. It does not
+    # happen to fail today -- every code really is constructed somewhere --
+    # but the next catalogued-and-never-raised code would pass in silence,
+    # which is precisely the lie this test exists to catch.
+    declarations_not_uses = {"findings.py", "finding_help.py"}
+
+    # Parsed, not regex-matched over the raw text: a code named in a comment
+    # or a docstring is not a construction site, and the text scan counted
+    # both.
+    #
+    # NOT narrowed to literal `Finding(...)` calls, which is the obvious next
+    # step and is wrong. `analysis/conditions.py` routes every refusal through
+    # `_reject(code, ...)` and builds its findings in a comprehension, so a
+    # call-shaped check reports 39 of the 193 codes as unconstructed --
+    # measured, and the same 39 that misled the first attempt at #98. An
+    # executable reference to the code is the honest signal at this level;
+    # whether the rule FIRES is a runtime question, and the paragraph above
+    # says so.
+    referenced: set[str] = set()
+    for path in PACKAGE.rglob("*.py"):
+        if path.name in declarations_not_uses:
+            continue
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if (
+                isinstance(node, ast.Attribute)
+                and isinstance(node.value, ast.Name)
+                and node.value.id == "FindingCode"
+            ):
+                referenced.add(node.attr)
+
     declared = {c.name for c in FindingCode}
 
     # Raised by an extension's own validators, never by the core -- see the
-    # member's comment. `test_validator_core._StubExtension` constructs it.
-    extension_only = {"EXTENSION_REPORTED"}
+    # members' comment. `test_validator_core._StubExtension` constructs the
+    # warning; both exist so an extension can report either strength without
+    # anybody restating a severity.
+    extension_only = {"EXTENSION_REPORTED", "EXTENSION_WARNING"}
 
     unreachable = declared - referenced - extension_only
     assert not unreachable, (

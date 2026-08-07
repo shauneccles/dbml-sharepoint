@@ -106,7 +106,6 @@ def validate_form_visibility(
     if is_calculated:
         findings.append(Finding(
             FindingCode.FORM_VISIBILITY_ON_A_CALCULATED_COLUMN,
-            "error",
             (f"{at.path}: {column!r} is a calculated column -- calculated columns never "
              f"appear on entry forms, so declaring their visibility is a mistake"),
             location=at,
@@ -114,7 +113,6 @@ def validate_form_visibility(
     if not new and not existing and when is not None:
         findings.append(Finding(
             FindingCode.FORM_VISIBILITY_CONDITION_UNREACHABLE,
-            "error",
             (f"{at.path}: {column!r} is hidden on every form, so 'when' can never be "
              f"reached -- drop one or the other"),
             location=at,
@@ -126,7 +124,6 @@ def validate_form_visibility(
         # an error because the build can prove it.
         findings.append(Finding(
             FindingCode.REQUIRED_COLUMN_HIDDEN_FROM_THE_NEW_FORM,
-            "error",
             (f"{at.path}: {column!r} is required with no default and hidden from the New "
              f"form, so every save would fail"),
             location=at,
@@ -136,7 +133,6 @@ def validate_form_visibility(
         # on what the person types. A warning, per the spec.
         findings.append(Finding(
             FindingCode.REQUIRED_COLUMN_MAY_BE_HIDDEN_AT_CREATION,
-            "warning",
             (f"{at.path}: {column!r} is required with no default and 'when' may hide it "
              f"at creation, which would fail the save -- this cannot be decided at "
              f"build time"),
