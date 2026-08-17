@@ -39,27 +39,32 @@
  * it. `ID` being indexed by default is the reason to expect no change; it
  * is a reason rather than a measurement, which is what these rows fix.
  *
- * MEASURED 2026-08-17, revision 39c97f15, at 5,614 rows. The guard does not
- * change what SharePoint serves.
+ * RUN OF 2026-08-17, revision 39c97f15, at 5,614 rows. It did NOT settle the
+ * question, and an earlier version of this paragraph said it had.
  *
- *   GRDONLY is what makes the rest readable, and it answered twice. With
- *   RowLimit 200 it returned exactly 200 and said nothing. With RowLimit
- *   above the list it returned exactly 5,000 of 5,614: HTTP 200, no error, a
- *   SILENTLY TRUNCATED answer. So the threshold IS enforced at this size, and
- *   the guard does NOT exempt a query from it. Both halves matter: the first
- *   is the control every other guard row needs, the second says the conjunct
- *   is not a way round the threshold.
+ *   GRDIDX and GRDNUL each returned 56 rows guarded and 56 unguarded. 56 is
+ *   the complete expected count at this size, so both halves of both pairs
+ *   answered fully and neither came near the threshold. That measures the
+ *   conjunct on queries nothing was throttling. It says nothing about the
+ *   throttled case, which is the question this section opens with.
  *
- *   GRDIDX and GRDNUL both returned 56 rows guarded and 56 unguarded, which
- *   is the complete expected count at this size (floor(5614/100)), not a
- *   truncation. An indexed filter keeps its whole answer with the conjunct
- *   attached, on a list where an unindexed scan is being cut off at 5,000.
+ *   GRDONLY returned HTTP 200 holding exactly 5,000 of 5,614. That was read
+ *   as the threshold being enforced, and it does not establish it: 5,000 is
+ *   also the server's own page ceiling, so the round number is the same
+ *   artefact class as the round 200 this probe had already refused to read
+ *   one run earlier. Microsoft documents threshold enforcement as an error,
+ *   and CMPUNI recorded it as HTTP 500 SPQueryThrottledException. An HTTP 200
+ *   carrying 5,000 rows is consistent with either.
  *
- *   GRDUNI is still unreadable and TWINCK says why: Bucket returned 56 and
- *   Shadow 50, so the twins differ by six rows and no longer differ ONLY in
- *   the index. That is a seed fault, not an indexing result. What GRDUNI
- *   would have added is covered in part by GRDONLY, which shows the guard
- *   does not rescue a query the threshold refuses to serve whole.
+ *   GRDUNI is void. TWINCK read Bucket 56 against Shadow 50, so the twins
+ *   differ by six rows and no longer differ only in the index. That is a seed
+ *   fault. GRDUNI is the row that would have measured the throttled case, so
+ *   the question stays open until the seed is reconciled.
+ *
+ * WHAT WOULD SETTLE IT: a query that must scan past 5,000 and returns fewer
+ * rows than it should, with the guarded and unguarded forms returning the
+ * same shortfall. GRDONLY cannot do it while a 5,000-row answer is
+ * indistinguishable from a full page.
  *
  * GRDIDX and GRDNUL are the measurement. Each sends the filter twice,
  * unguarded then guarded, seconds apart on the same list, and compares the
@@ -2345,9 +2350,9 @@
              alone.ok ? 'SERVED' : 'REFUSED',
              `[${stamp}] HTTP ${alone.status}, ${alone.rows} row(s) of ${count}. `
              + (alone.ok
-               ? 'SERVED is the surprise: the guard matches every row, so a query '
-                 + 'with nothing else in it should breach the threshold. Read '
-                 + 'GRDIDX with that in mind. ' + alone.text
+               ? 'SERVED, and it does not settle anything on its own: 5,000 rows on an '
+                 + 'HTTP 200 is the server page ceiling as much as it is a throttle. '
+                 + 'Read GRDIDX with that in mind. ' + alone.text
                : 'Refused, as an unfiltered query at this size should be, so the '
                  + 'guard is not being treated as a selective filter.'));
     }
