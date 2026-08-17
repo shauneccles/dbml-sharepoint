@@ -49,6 +49,7 @@ hand-off into that same improvement/investment chain.
 | [delegations-register](delegations-register/) | Who may approve what | The searchable mirror of your instrument of delegation, the lookup every other register's "per your delegations" points at |
 | [raci-matrix](raci-matrix/) | Who does what, and who answers for it | One Accountable per row, structurally; consulted parties must state their input; criticality-driven re-confirmation |
 | [research-ethics-register-simple](research-ethics-register-simple/) | Projects referred to a partner HREC | The single-list register for a service referring to a partner's HREC: two separate gates on one row, calculated site readiness, closed work filtered out of the default view |
+| [records-digitisation](records-digitisation/) | Can a digitised record be kept in this platform? | Platform-by-platform capability assessment: six answers that can each say *Unknown*, three multi-value evidence lists, and a verdict a person types |
 
 *Theme: Operations & service.*
 
