@@ -3274,9 +3274,16 @@
         headers: { 'Accept': 'application/json;odata=verbose' },
       });
       if (listResp.ok) listId = ((await listResp.json()) || {}).d.Id;
-      const shapes = await listViewShapes(listPath);
-      const shape = shapes.find((s) => s.Title === guarded.title);
-      viewId = shape ? shape.Id : null;
+      // Read live rather than through listViewShapes, which memoises the
+      // enumeration deployView took BEFORE creating anything. On a first
+      // deployment that cache holds no declared view, so the lookup would
+      // miss and this check would warn its way out of running on the very
+      // deploy that introduced the protection. A rename has the same shape.
+      const viewResp = await fetchWithRetry(
+        apiUrl(`${listPath}/views/getbytitle('${odataName(guarded.title)}')?$select=Id`),
+        { headers: { 'Accept': 'application/json;odata=verbose' } },
+      );
+      if (viewResp.ok) viewId = ((await viewResp.json()) || {}).d.Id;
     } catch (err) {
       listId = null;
     }
