@@ -493,6 +493,26 @@ def test_a_duplicate_enum_name_is_an_error() -> None:
     assert finding.location == Location(Section.SCHEMA, entity="status")
 
 
+def test_a_repeated_enum_member_is_refused() -> None:
+    """A duplicate reaches the live field's Choices collection.
+
+    `_field_reconcile.js.j2:147-152` compares that collection index by index,
+    so a repeat can leave the reconciler unable to converge. It applies to
+    every enum, not only the multi-value ones.
+    """
+    findings = validate(make_schema(
+        make_table("Audit", make_column("Event", "audit_event")),
+        enums=[make_enum("audit_event", "View", "View", "Edit")],
+    ))
+
+    found = only(findings, FindingCode.DUPLICATE_ENUM_MEMBER)
+    assert found.severity == "error"
+    # The member is the one value the location cannot carry, and it is what
+    # the author needs in order to find the repeat.
+    assert "View" in found.message
+    assert found.location == Location(Section.SCHEMA, entity="audit_event")
+
+
 def test_an_enum_with_no_members_is_a_warning() -> None:
     """A warning rather than an error: an empty enum provisions a Choice
     column with no choices, which is useless but not unsafe."""

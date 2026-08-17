@@ -404,6 +404,13 @@ FINDING_HELP: dict[FindingCode, str] = {
         "Two columns of one entity resolve to the same display title, "
         "making them indistinguishable on every form and view."
     ),
+    FindingCode.DUPLICATE_ENUM_MEMBER: (
+        "One enum declares the same member twice. The members reach the "
+        "deploy body as an ordered `Choices` collection, and the field "
+        "reconciler compares that collection index by index, so a repeat "
+        "can leave the reconciler unable to converge. It applies to every "
+        "enum, not only the ones backing a multi-value column."
+    ),
     FindingCode.DUPLICATE_ENUM_NAME: (
         "Two enums share a name."
     ),

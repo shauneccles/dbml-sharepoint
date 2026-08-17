@@ -119,6 +119,7 @@ dbml-sharepoint explain unknown_column_type
 | `duplicate_column_name` | error | A table declares the same column name twice. |
 | `duplicate_demo_key` | error | Two demo rows share a key. Keys are global across entities because `demo_ref` resolves against all of them. |
 | `duplicate_display_title` | error | Two columns of one entity resolve to the same display title, making them indistinguishable on every form and view. |
+| `duplicate_enum_member` | error | One enum declares the same member twice. The members reach the deploy body as an ordered `Choices` collection, and the field reconciler compares that collection index by index, so a repeat can leave the reconciler unable to converge. It applies to every enum, not only the ones backing a multi-value column. |
 | `duplicate_enum_name` | error | Two enums share a name. |
 | `duplicate_group_name` | error | Two `groups` entries share a name case-insensitively, which SharePoint resolves to one group. |
 | `duplicate_index_target` | error | One table's `indexes { }` names the same column twice. |

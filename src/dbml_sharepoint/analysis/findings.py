@@ -464,6 +464,7 @@ class FindingCode(StrEnum):
     CROSS_SITE_EXPANSION_UNHANDLED = "cross_site_expansion_unhandled", "error"
     DEFAULT_NOT_AN_ENUM_MEMBER = "default_not_an_enum_member", "error"
     DUPLICATE_COLUMN_NAME = "duplicate_column_name", "error"
+    DUPLICATE_ENUM_MEMBER = "duplicate_enum_member", "error"
     DUPLICATE_ENUM_NAME = "duplicate_enum_name", "error"
     DUPLICATE_TABLE_NAME = "duplicate_table_name", "error"
     EMPTY_ENUM = "empty_enum", "warning"

@@ -1,6 +1,7 @@
 # src/dbml_sharepoint/analysis/validator.py
 """Validation rules for the parsed schema."""
 
+from collections import Counter
 from dataclasses import replace
 
 from dbml_sharepoint.analysis import typemap
@@ -105,6 +106,19 @@ def validate(schema: Schema) -> list[Finding]:
                 FindingCode.DUPLICATE_ENUM_NAME, at_enum, "duplicate enum name.",
             ))
         seen_enums.add(enum.name)
+        # A repeat reaches the field's `Choices` collection, which
+        # `deploy/_field_reconcile.js.j2` compares index by index.
+        for member, count in Counter(enum.members).items():
+            if count > 1:
+                findings.append(_report(
+                    FindingCode.DUPLICATE_ENUM_MEMBER,
+                    at_enum,
+                    f"enum member {member!r} is declared {count} times. The "
+                    f"deploy body carries the members as an ordered `Choices` "
+                    f"collection and the field reconciler compares that "
+                    f"collection index by index, so the repeat can leave the "
+                    f"reconciler unable to converge. Declare the member once.",
+                ))
         if not enum.members:
             findings.append(_report(
                 FindingCode.EMPTY_ENUM, at_enum, "enum has zero members.",
