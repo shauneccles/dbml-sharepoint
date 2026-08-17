@@ -526,10 +526,15 @@ WIDTH_SCALE: frozenset[int] = frozenset(range(100, 321, 10))
 REFERENCE_DATE = dt.date(2026, 7, 1)
 
 # The operators the demo-coverage evaluator implements. Anything else makes
-# the view UNEVALUABLE and is reported as a skip naming the view, never
-# silently treated as satisfied.
+# the view UNEVALUABLE, and the skip that follows retires the WHOLE template's
+# demo-satisfaction check rather than the one view, so a gap here is expensive.
+#
+# `includes`/`not_includes` are the multi-value pair. They are the only
+# comparison such a view can carry: `analysis/conditions.py` refuses `eq` on a
+# multi-value column and directs the author to them.
 SUPPORTED_OPS: frozenset[str] = frozenset({
     "eq", "neq", "lt", "leq", "gt", "geq", "in", "not_in", "is_null", "is_not_null",
+    "includes", "not_includes",
 })
 
 # §3.1, the lifecycle/severity assertion (the NARROW, defensible reading).
@@ -944,10 +949,7 @@ def test_every_formatted_column_is_exercised_by_a_demo_row(
                     continue
                 if loaded.mapping.is_retired(entity, source):
                     continue
-                seen = {
-                    str(row[source]) for row in rows
-                    if row.get(source) is not None
-                }
+                seen = _seen_values(rows, source)
                 if not (set(value_map) & seen):
                     unrendered.add(
                         f"{entity}.{source} (map keys {sorted(value_map)})",
@@ -1051,6 +1053,22 @@ def _is_ordered_subsequence(beats: list[str]) -> bool:
     return True
 
 
+def _seen_values(rows: list[dict[str, Any]], source: str) -> set[str]:
+    """Every value the demo rows give `source`, a list column's members flattened.
+
+    A multi-value column holds a list, and `str(["View", "Edit"])` is
+    `"['View', 'Edit']"`, which keys no map. Stringifying the list rather than
+    its members would report a correctly formatted column as one whose
+    formatter is never seen to render.
+    """
+    return {
+        str(member)
+        for row in rows
+        if row.get(source) is not None
+        for member in (row[source] if isinstance(row[source], list) else [row[source]])
+    }
+
+
 def _token_maps(column: str, spec: dict[str, Any]) -> list[tuple[str, dict[str, str]]]:
     """(source column, {member: token}) for a raw style spec's `map:` blocks."""
     maps: list[tuple[str, dict[str, str]]] = []
@@ -1108,16 +1126,24 @@ def _evaluate_leaf(leaf: Leaf, row: dict[str, Any], types: dict[str, str]) -> bo
     if column_type == "person" and leaf.value == "me":
         return None  # the current user is a deploy-time fact
     raw = row.get(leaf.field)
-    blank = raw is None or (isinstance(raw, str) and not raw.strip())
+    # `[]` counts as empty because the emitter omits an empty multi-value field
+    # from the payload and M4 measured that column reading back `null`.
+    blank = raw is None or raw == [] or (isinstance(raw, str) and not raw.strip())
     if leaf.op == "is_null":
         return blank
     if leaf.op == "is_not_null":
         return not blank
     if blank:
-        # Matches the grammar's own three-valued semantics (see the note in
-        # analysis/conditions.py): neq/not_in place the empty value outside
-        # the compared literal, every other comparison excludes it.
-        return leaf.op in ("neq", "not_in")
+        # Matches the grammar's own three-valued semantics (the
+        # _NULL_INCLUSIVE_NEGATIVES set in analysis/conditions.py): these three
+        # place the empty value outside the compared literal, and every other
+        # comparison excludes it. `not_includes` is there on probe C9,
+        # 2026-08-10, which returned the empty row.
+        return leaf.op in ("neq", "not_in", "not_includes")
+    if leaf.op in ("includes", "not_includes"):
+        members = raw if isinstance(raw, list) else [raw]
+        hit = any(_compare("eq", member, leaf.value) for member in members)
+        return hit if leaf.op == "includes" else not hit
     if leaf.op in ("in", "not_in"):
         if not isinstance(leaf.value, list):
             raise _UnevaluableError(f"{leaf.field}: {leaf.op} value is not a list")
@@ -1192,6 +1218,68 @@ def _as_number(value: Any) -> float | None:
         except ValueError:
             return None
     return None
+
+
+# === The evaluator's own tests ==============================================
+#
+# Every other test in this file sweeps the whole library, so a hole in the
+# evaluator shows up as a SKIP rather than as a failure. These are direct.
+
+_MULTI_VALUE_TYPES = {"Events": "audit_event[]"}
+
+
+def test_a_view_filtering_a_multi_value_column_is_evaluable() -> None:
+    """An unevaluable operator skips the WHOLE template, not one view.
+
+    So a single `includes` filter would silently retire every other view's
+    demo-satisfaction check in that family. `includes` is the only operator
+    such a view can carry, because `analysis/conditions.py` refuses `eq` on a
+    multi-value column and directs the author here.
+    """
+    row = {"Events": ["View", "Edit"]}
+    assert _evaluate_leaf(Leaf("Events", "includes", "Edit"), row, _MULTI_VALUE_TYPES) is True
+    assert _evaluate_leaf(Leaf("Events", "includes", "Delete"), row, _MULTI_VALUE_TYPES) is False
+    assert _evaluate_leaf(Leaf("Events", "not_includes", "Delete"), row, _MULTI_VALUE_TYPES) is True
+    assert _evaluate_leaf(Leaf("Events", "not_includes", "Edit"), row, _MULTI_VALUE_TYPES) is False
+
+
+def test_a_scalar_value_still_answers_a_multi_value_operator() -> None:
+    """A demo row may give one member without wrapping it in a list."""
+    row = {"Events": "Edit"}
+    assert _evaluate_leaf(Leaf("Events", "includes", "Edit"), row, _MULTI_VALUE_TYPES) is True
+    assert _evaluate_leaf(Leaf("Events", "includes", "View"), row, _MULTI_VALUE_TYPES) is False
+
+
+def test_an_empty_multi_value_column_reads_as_null() -> None:
+    """`[]` is neither None nor a str, so `blank` missed it.
+
+    The emitter omits the field for an empty list and M4 measured that column
+    reading back `null`, so the evaluator has to agree with the payload.
+    """
+    row: dict[str, Any] = {"Events": []}
+    assert _evaluate_leaf(Leaf("Events", "is_null", None), row, _MULTI_VALUE_TYPES) is True
+    assert _evaluate_leaf(Leaf("Events", "is_not_null", None), row, _MULTI_VALUE_TYPES) is False
+
+
+def test_an_empty_multi_value_column_satisfies_not_includes() -> None:
+    """Probe C9, 2026-08-10: a bare `<Neq>` against a MultiChoice column
+    returned the rows without the member AND the empty row, which is why
+    `not_includes` is in `_NULL_INCLUSIVE_NEGATIVES` in `conditions.py`.
+    """
+    row: dict[str, Any] = {"Events": []}
+    assert _evaluate_leaf(Leaf("Events", "not_includes", "Edit"), row, _MULTI_VALUE_TYPES) is True
+    assert _evaluate_leaf(Leaf("Events", "includes", "Edit"), row, _MULTI_VALUE_TYPES) is False
+
+
+def test_a_formatted_multi_value_column_counts_as_exercised() -> None:
+    """`str(["View", "Edit"])` is `"['View', 'Edit']"` and matches no map key.
+
+    Without flattening, a formatted multi-value column reports as one whose
+    formatter no demo row is ever seen to render, which fails the sweep on
+    correct work.
+    """
+    rows: list[dict[str, Any]] = [{"Events": ["View", "Edit"]}, {"Events": "Delete"}, {}]
+    assert _seen_values(rows, "Events") == {"View", "Edit", "Delete"}
 
 
 # Entities deliberately outside the standard. EMPTY: templates/README.md
