@@ -61,10 +61,21 @@
  *   fault. GRDUNI is the row that would have measured the throttled case, so
  *   the question stays open until the seed is reconciled.
  *
- * WHAT WOULD SETTLE IT: a query that must scan past 5,000 and returns fewer
- * rows than it should, with the guarded and unguarded forms returning the
- * same shortfall. GRDONLY cannot do it while a 5,000-row answer is
- * indistinguishable from a full page.
+ * WHAT SETTLES IT IS A RENDERED VIEW, not a row count. Every REST surface
+ * here pages at 5,000, so an answer of 5,000 rows is a page ceiling and a
+ * threshold breach at once and no count can separate them. A view either
+ * lists its rows or shows the list view threshold message, and those look
+ * nothing alike.
+ *
+ * VWIDX against VWGRD is the question, and it needs no seed reconciled: the
+ * same column and value, differing only in the conjunct. VWGRD failing where
+ * VWIDX renders is the #272 hazard on the surface that ships.
+ *
+ * VWUNI against VWUGD is the control. A selective filter on an unindexed
+ * column must scan the whole list, so VWUNI has to show the threshold
+ * message; if it renders, nothing here is being throttled and VWIDX
+ * rendering means nothing. TWINCK's seed fault does not reach this pair,
+ * which asks whether the view loads rather than how many rows match.
  *
  * GRDIDX and GRDNUL are the measurement. Each sends the filter twice,
  * unguarded then guarded, seconds apart on the same list, and compares the
@@ -434,6 +445,10 @@
   expect('NULIDX', 'OData null test, INDEXED DateTime');
   expect('CMPCAM', 'CAML comparison, INDEXED Text');
   expect('TWINCK', 'Do the indexed and unindexed twins still match the same rows?');
+  expect('VWIDX', 'RENDERED view, INDEXED filter, unguarded (manual: look)');
+  expect('VWGRD', 'RENDERED view, INDEXED filter, GUARDED (manual: look)');
+  expect('VWUNI', 'RENDERED view, UNINDEXED filter, unguarded (manual: look)');
+  expect('VWUGD', 'RENDERED view, UNINDEXED filter, GUARDED (manual: look)');
   expect('GRDIDX', 'CAML comparison, INDEXED Text, GUARDED as #272 emits it');
   expect('GRDNUL', 'CAML IsNull, INDEXED DateTime, GUARDED as #272 emits it');
   expect('GRDUNI', 'CAML comparison, UNINDEXED twin, GUARDED (control)');
@@ -2355,6 +2370,67 @@
                  + 'Read GRDIDX with that in mind. ' + alone.text
                : 'Refused, as an unfiltered query at this size should be, so the '
                  + 'guard is not being treated as a selective filter.'));
+    }
+
+    // ---- Four VIEWS, because a row count cannot answer this -------------
+    // Every REST surface here pages at 5,000, so a query returning 5,000 of
+    // 5,614 is a page ceiling and a threshold breach at the same time and
+    // this probe cannot tell them apart. Run of 2026-08-17 read one as the
+    // other.
+    //
+    // A rendered view can. SharePoint either lists the rows or shows the
+    // threshold message, and the two look nothing alike. So create the four
+    // views and have an operator open them.
+    //
+    // VWIDX against VWGRD IS THE QUESTION, and it needs no seed reconciled:
+    // same column, same value, differing only in the conjunct. VWGRD failing
+    // where VWIDX renders is the #272 hazard, seen on the surface that ships.
+    //
+    // VWUNI against VWUGD is the control. A selective filter on an unindexed
+    // column must scan the whole list, so VWUNI must show the threshold
+    // message; if it renders, nothing on this list is being throttled and
+    // VWIDX rendering says nothing. TWINCK's seed fault does not reach this
+    // pair, which asks whether the view loads rather than how many rows match.
+    const VIEW_SHAPES = [
+      ['VWIDX', 'RENDERED view, INDEXED filter, unguarded (manual: look)',
+       `<Where>${IDX_LEAF}</Where>`],
+      ['VWGRD', 'RENDERED view, INDEXED filter, GUARDED (manual: look)',
+       guarded(IDX_LEAF)],
+      ['VWUNI', 'RENDERED view, UNINDEXED filter, unguarded (manual: look)',
+       `<Where>${UNI_LEAF}</Where>`],
+      ['VWUGD', 'RENDERED view, UNINDEXED filter, GUARDED (manual: look)',
+       guarded(UNI_LEAF)],
+    ];
+    for (const [id, question, where] of VIEW_SHAPES) {
+      if (guardBlocked) {
+        record(id, question, 'NOT ESTABLISHED', `[${stamp}] not measured: ${guardBlocked}.`);
+        continue;
+      }
+      if (!ALLOW_WRITES) {
+        record(id, question, 'NOT ESTABLISHED',
+               `[${stamp}] ALLOW_WRITES is false, so no view was created.`);
+        continue;
+      }
+      const title = `Threshold ${id}`;
+      const listPath = `web/lists/getbytitle('${odata(LIST)}')`;
+      const d = await getDigest();
+      const made = await spPost(`${listPath}/views`, {
+        __metadata: { type: 'SP.View' }, Title: title, ViewQuery: where,
+        PersonalView: false, Paged: true, RowLimit: 100,
+      }, d, {
+        Accept: 'application/json;odata=verbose',
+        'Content-Type': 'application/json;odata=verbose',
+      });
+      const listing = await spGet(`${listPath}/views?$select=Title,ServerRelativeUrl`);
+      const url = ((!readFailed(listing) && listing.body.value) || [])
+        .find((v) => v.Title === title)?.ServerRelativeUrl || null;
+      record(id, question, url ? 'MANUAL' : 'NOT ESTABLISHED',
+        url
+          ? `[${stamp}] OPEN ${window.location.origin}${url} and report ONE of: `
+            + '"rows" (it listed items) or "threshold" (it showed the list view '
+            + 'threshold message). The filter is ' + where
+          : `[${stamp}] the view could not be created: HTTP ${made.status} `
+            + `${(made.text || '').slice(0, 160)}`);
     }
   };
 
