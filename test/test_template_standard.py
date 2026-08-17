@@ -507,6 +507,23 @@ SECTION_BEATS: dict[tuple[str, str], dict[str, str]] = {
         "State the input": "Identify",
         "How they are involved": "Act",
     },
+    # Two consecutive Assess sections, which §1.2 permits and this form
+    # depends on. "Can it keep a record" is the six capability questions a
+    # custodian answers from memory before the assessment interview; "Evidence
+    # and method" is the three multi-value lists that qualify them, filled in
+    # with the assessor and in front of the platform. One heading over all
+    # nine is a wall of fields in front of somebody answering six questions.
+    #
+    # System holds the assessment provenance rather than a calculated column,
+    # and that is the beat it belongs to: who reached the verdict and when is
+    # what makes the row auditable, and it is the last thing anybody types.
+    ("records-digitisation", "Platform"): {
+        "The platform": "Identify",
+        "Can it keep a record": "Assess",
+        "Evidence and method": "Assess",
+        "Verdict and follow-up": "Govern",
+        "System": "System",
+    },
 }
 
 # §1.3. Deliberately WEAKER than the archetype table in the spec, which is a
@@ -1529,12 +1546,19 @@ def test_the_worst_generated_all_items_is_six_of_twelve() -> None:
     RE-MEASURED 2026-08-12 across 32 templates / 57 entities, when
     raci-matrix's Involvement child list joined the roster: 2 -> 7, 3 -> 29,
     4 -> 19, 5 -> 1, 6 -> 1. Involvement lands at 4 (Activity, Party, Author,
-    Editor). The worst is unchanged and is still raci-matrix/Activity at 6."""
+    Editor). The worst is unchanged and is still raci-matrix/Activity at 6.
+
+    RE-MEASURED 2026-08-18 across 33 templates / 58 entities, when
+    records-digitisation's Platform register joined the roster: 2 -> 7,
+    3 -> 29, 4 -> 20, 5 -> 1, 6 -> 1. Platform lands at 4 (AssessedBy,
+    PlatformCustodian, Author, Editor). Its three multi-value columns cost
+    nothing: a Choice (multi-valued) is not a Lookup and carries no join. The
+    worst is unchanged and is still raci-matrix/Activity at 6."""
     from dbml_sharepoint.analysis.joins import all_items_joining_fields
 
     templates = _all_templates()
-    assert len(templates) == 32, (
-        f"{len(templates)} templates discovered, not the 32 this survey was "
+    assert len(templates) == 33, (
+        f"{len(templates)} templates discovered, not the 33 this survey was "
         f"measured against. A template appeared or disappeared from the "
         f"roster. Re-measure the distribution and the worst count below "
         f"before trusting either."
@@ -2006,8 +2030,8 @@ def test_no_two_templates_declare_the_same_entity_name() -> None:
     """Unprefixed list names must stay unique across the shipped families.
 
     The prefix is a governance device -- you register yours so nobody else
-    takes it -- and it is on its way out. MEASURED 2026-08-12: 57 entity
-    names across 32 families, zero duplicated, so several families can
+    takes it -- and it is on its way out. RE-MEASURED 2026-08-18: 58 entity
+    names across 33 families, zero duplicated, so several families can
     already share one site with no prefix at all.
 
     That is only true while it stays true. Two families both declaring
@@ -2015,8 +2039,8 @@ def test_no_two_templates_declare_the_same_entity_name() -> None:
     nothing else in the build would notice: each family validates alone.
     """
     solutions = available_solutions()
-    assert len(solutions) == 32, (
-        f"{len(solutions)} templates discovered, not the 32 this collision "
+    assert len(solutions) == 33, (
+        f"{len(solutions)} templates discovered, not the 33 this collision "
         "sweep was measured against -- re-verify the invariant before "
         "trusting an empty collision set."
     )
@@ -2024,8 +2048,8 @@ def test_no_two_templates_declare_the_same_entity_name() -> None:
     for solution in solutions:
         for entity in solution.lists:
             owners.setdefault(entity, []).append(solution.id)
-    assert len(owners) == 57, (
-        f"{len(owners)} unique entity names found, not the 57 this collision "
+    assert len(owners) == 58, (
+        f"{len(owners)} unique entity names found, not the 58 this collision "
         "sweep was measured against -- re-verify the invariant before "
         "trusting an empty collision set."
     )

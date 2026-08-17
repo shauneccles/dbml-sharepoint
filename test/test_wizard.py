@@ -2477,8 +2477,8 @@ def test_the_facts_match_between_the_shipped_family_and_the_copy(
     # over an empty roster, proving nothing while looking like it walked
     # every family. `test_no_two_templates_declare_the_same_entity_name`
     # in test_template_standard.py uses the same shape for the same reason.
-    assert len(solutions) == 32, (
-        f"{len(solutions)} templates discovered, not the 32 this walk was "
+    assert len(solutions) == 33, (
+        f"{len(solutions)} templates discovered, not the 33 this walk was "
         "measured against -- re-verify the invariant before trusting an "
         "empty roster as a pass."
     )

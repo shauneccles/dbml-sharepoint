@@ -1,0 +1,620 @@
+# Records digitisation platform capability assessment: physical mapping.
+# THE HEADLINE VERDICT AND THE THREE MULTI-VALUE COLUMNS LIVE HERE.
+prefix: "RD_"
+
+entities:
+  Platform: { kind: List, base_template: 100, site_role: default }
+
+cross_site_reference_columns: []
+
+# 100 major versions. A verdict is re-opened when a platform is upgraded, and
+# the argument two years later is always "what did we assess it against". The
+# version history is the only place the previous answer survives, because a
+# re-assessment overwrites the same nineteen columns rather than adding a row.
+versioning:
+  default:
+    enable_versioning: true
+    major_version_limit: 100
+    enable_minor_versions: false
+  overrides: {}
+
+enum_sources: {}
+watched_lists: []
+
+# NO CALCULATED COLUMN, and that is a decision rather than an omission.
+#
+# The obvious one writes itself: score the six answers and derive the verdict.
+# It is refused for three reasons, in ascending order of how much they cost.
+# A calculated column is READ-ONLY, so there would be no way to record "the
+# answers say no, we accept the risk with named configuration" - which is the
+# assessor job, not an exception to it. It cannot be INDEXED, and four of the
+# five views here filter on the verdict. And it could not be read by
+# conditional visibility, so nothing on the form could react to it.
+#
+# The deeper reason is that averaging six answers into one number is the
+# failure this register exists to prevent. A platform that scores five Yes and
+# one No on "destruction is complete" is not eighty-three per cent compliant.
+# It is a platform that cannot dispose of anything, and a mean would hide that.
+calculated_formulas: {}
+
+# Security: one Contribute group holding BOTH the custodians who fill the
+# answers in and the assessors who reach the verdict; everyone on the site
+# reads. Read-wide is deliberate. "Can we put the scanned files there" is a
+# question asked by project teams, service managers and the digitisation
+# program alike, and a register only the program can see is a register that
+# gets re-answered from memory.
+#
+# ONE GROUP, NOT TWO, and 50-govern/governance.md says plainly why: field-level
+# permissions do not exist here. A second, assessor-only group would buy
+# nothing, because list permissions are list-scoped and anybody with Contribute
+# can switch to All Items and type in any column. Splitting the groups would
+# LOOK like a control and be none.
+groups:
+  - name: "RD Records Digitisation Program"
+    description: "Assess platforms against the records requirements, record custodian answers and reach the destination verdict."
+    owner_group: "Site Owners"
+    allow_members_edit_membership: false
+    allow_request_to_join_leave: false
+    auto_accept_request_to_join_leave: false
+    only_allow_members_view_membership: false
+  - name: "dbml List Administrators"
+    description: "Full Control for schema changes and redeploys. Empty by default; the deploy script enrols the running operator per run."
+    owner_group: "Site Owners"
+    allow_members_edit_membership: false
+    allow_request_to_join_leave: false
+    auto_accept_request_to_join_leave: false
+    only_allow_members_view_membership: true
+    enroll_operator_during_deploy: true
+  - name: "dbml Enterprise Readers"
+    description: "Read-only accounts for aggregated cross-site reporting. Empty by default; membership is operator-owned."
+    owner_group: "Site Owners"
+    allow_members_edit_membership: false
+    allow_request_to_join_leave: false
+    auto_accept_request_to_join_leave: false
+    only_allow_members_view_membership: false
+    enroll_enterprise_reader: true
+
+permission_levels: []
+
+list_permissions:
+  default:
+    site_role: default
+    break_inheritance: true
+    reconcile: exact
+    assignments:
+      - principal: { kind: group, name: "RD Records Digitisation Program" }
+        level: "Contribute"
+      - principal: { kind: group, name: "dbml List Administrators" }
+        level: "Full Control"
+      - principal: { kind: associated_member_group }
+        level: "Read"
+      - principal: { kind: associated_owner_group }
+        level: "Read"
+      - principal: { kind: group, name: "dbml Enterprise Readers" }
+        level: "Read"
+
+# UI hardening (tamper-resilience): site owners/admins bypass every ACL, so
+# the realistic threat is well-meaning UI tampering. Sealed columns block
+# schema edits and deletion of every deployed column through the UI even for
+# site admins (display-name renames stay possible: drift, reverted on
+# re-paste; the deployer unseals for its own runs and re-seals in Phase 4.1);
+# prevent_list_deletion blocks UI deletion of the list objects (rollback.js
+# clears it per list after you confirm that list's deletion). Friction and
+# tamper-evidence, not enforcement. See "The shared security model" in
+# templates/README.md.
+seal_columns: true
+prevent_list_deletion: true
+
+# Backend internal names stay exactly as authored in the DBML (the indexes,
+# the views and the row wash all key on them); the deployer renames the
+# display Title after create.
+#
+# The overrides are not cosmetic here. Auto splitting turns
+# RetentionAndDisposalInPlace into "Retention And Disposal In Place", and the
+# six capability columns are meant to read as the SIX QUESTIONS an assessor
+# asks, in sentence case, so a custodian filling the form in before the
+# interview meets a question rather than a field name.
+display_names:
+  mode: auto
+  overrides:
+    Platform:
+      Title: "Platform"
+      BusinessDomain: "Business domain"
+      PlatformCustodian: "Platform custodian"
+      LifecycleStatus: "Lifecycle status"
+      RetentionAndDisposalInPlace: "Retention and disposal in place"
+      DisposalIsEvidenced: "Disposal is evidenced"
+      DestructionIsComplete: "Destruction is complete"
+      DisposalCanBeSuspended: "Disposal can be suspended"
+      ExportWithMetadata: "Export includes metadata"
+      OriginalDateIsPreserved: "Original creation date preserved"
+      SuspensionTriggers: "Suspension triggers honoured"
+      AuditEventsLogged: "Audit events logged"
+      ExportMethods: "Export routes"
+      DestinationVerdict: "Destination verdict"
+      VerdictBasis: "Basis for the verdict"
+      FollowUpRequired: "Follow-up required"
+      FollowUpAction: "Follow-up action"
+      AssessedBy: "Assessed by"
+      AssessmentDate: "Assessment date"
+
+# Column formatting: the fleet style standard (dbml-sharepoint
+# website/docs/reference/style-guide.md). Tokens map by the ROLE a value plays
+# in its lifecycle, never by what it is called.
+#
+# THE THREE MULTI-VALUE COLUMNS CARRY NO STYLE, and this is refused rather than
+# merely skipped (`multi_value_style_renders_a_false_neutral`). The value of a
+# multi-value column arrives as an ARRAY, so `@currentField == 'Export'` is
+# false for every row including the ones that do contain Export - and the map
+# then falls through to its neutral arm on all of them. The column renders a
+# flat grey chip on every row, uniformly, which reads as "measured and
+# unremarkable" rather than as "not rendered". That is the exact shape of
+# failure this project exists to close: nothing in the build, the deploy or
+# the read-back can see it.
+#
+# FollowUpRequired carries none either, for a different reason:
+# `STYLE_ON_BOOLEAN_MATCHES_NOTHING`. A severity or pill map keys on the
+# rendered text of a Yes/No field and never matches.
+#
+# The six capability answers share ONE map, which is the point of sharing one
+# enum: a reader who has learnt the colours once has learnt all six columns.
+# Unknown is grey rather than red on purpose. It means nobody has asked yet,
+# and painting it as a failure would push custodians into guessing.
+column_formatting:
+  Platform:
+    LifecycleStatus:
+      style: severity
+      map:
+        "Being implemented": neutral
+        "In service": good
+        "Under review": low
+        "Decommissioning": warning
+        "Retired": muted
+    # The headline. `Not a destination` is the only blocked-red value in the
+    # template, and `Interim only` is amber because it is a real answer that
+    # comes with an obligation attached: somebody has to run the export.
+    DestinationVerdict:
+      style: severity
+      map:
+        "Not assessed": neutral
+        "Manages retention and disposal in place": good
+        "Suitable with named configuration": low
+        "Interim only - export with metadata proven": warning
+        "Not a destination": blocked
+    # Written out six times rather than carried on a YAML anchor. The map is
+    # what a person edits when their own answer set differs, and an anchor
+    # would put five of the six columns' colours somewhere the reader has to
+    # go and find. The keys are checked against the enum at build time, so a
+    # renamed member fails the build on all six rather than drifting on five.
+    RetentionAndDisposalInPlace:
+      style: pill
+      map: { "Unknown": neutral, "No": blocked, "Partly": warning, "Yes": good }
+    DisposalIsEvidenced:
+      style: pill
+      map: { "Unknown": neutral, "No": blocked, "Partly": warning, "Yes": good }
+    DestructionIsComplete:
+      style: pill
+      map: { "Unknown": neutral, "No": blocked, "Partly": warning, "Yes": good }
+    DisposalCanBeSuspended:
+      style: pill
+      map: { "Unknown": neutral, "No": blocked, "Partly": warning, "Yes": good }
+    ExportWithMetadata:
+      style: pill
+      map: { "Unknown": neutral, "No": blocked, "Partly": warning, "Yes": good }
+    OriginalDateIsPreserved:
+      style: pill
+      map: { "Unknown": neutral, "No": blocked, "Partly": warning, "Yes": good }
+
+# Every lens on this list shows the same four identifying columns, and three of
+# the five show the whole capability answer set, so both are declared once
+# (section 1.9: a set earns its place at three or more repetitions).
+field_sets:
+  Platform:
+    identity: [Title, BusinessDomain, PlatformCustodian, LifecycleStatus]
+    # The six questions, always together and always in this order. A view that
+    # showed three of them would invite the comparison the register exists to
+    # make impossible: these are not a score, and five Yes beside one No on
+    # destruction is not five-sixths of a compliant platform.
+    capability: [RetentionAndDisposalInPlace, DisposalIsEvidenced,
+                 DestructionIsComplete, DisposalCanBeSuspended,
+                 ExportWithMetadata, OriginalDateIsPreserved]
+
+# Declared views (deployed and reconciled by the views phase; undeclared views
+# are never touched). Widths are pixel ColumnWidth per view and the keys are
+# INTERNAL names. The build rewrites them to display titles, because
+# ColumnWidth binds by display name and an internal name silently resets.
+#
+# NOTHING IS GROUPED. Grouping a view on a multi-value column is
+# UNCHARACTERISED: nobody has watched what SharePoint does with a row that
+# holds three members, and the plausible answers (one group per set, or the row
+# repeated in three groups) differ in a way a reader could not tell apart from
+# correct output. Business domain would group cleanly, and a grouped view is
+# two lines to add; it is left out so that the first grouped view in this
+# family is a deliberate act rather than a pattern copied onto a column where
+# it has never been measured.
+views:
+  Platform:
+    # THE WORKING VIEW. Retired platforms are filtered away, which is how a
+    # register that only ever grows stays usable, and the whole capability set
+    # is on screen at once because comparing platforms across one question is
+    # the thing a spreadsheet does badly and this does well.
+    - title: "Platforms in service"
+      default: true
+      fields: ["@identity", "@capability", DestinationVerdict,
+               FollowUpRequired, AssessmentDate]
+      where:
+        - { field: LifecycleStatus, op: not_in, value: ["Retired"] }
+      sort:
+        - { field: Title, direction: asc }
+      # THE ONE ROW-LEVEL SIGNAL in this template. A platform that is live and
+      # cannot keep a record is the state the whole program exists to find,
+      # and it is worth shouting about in the view people leave open.
+      #
+      # `Under review` counts as live: a platform under review is still taking
+      # records today. `Decommissioning` deliberately does not, because a
+      # platform on its way out being unsuitable is the expected case, not a
+      # finding, and washing it would train people to ignore the colour.
+      #
+      # Both columns the formatter reads must stay in this view's fields: a
+      # view formatter can only read columns the view displays. Drop either and
+      # the wash stops firing, with a clean build and no error anywhere.
+      formatting: formatting/row-not-a-destination.json
+      widths:
+        Title: 260
+        BusinessDomain: 170
+        PlatformCustodian: 170
+        LifecycleStatus: 160
+        RetentionAndDisposalInPlace: 200
+        DisposalIsEvidenced: 160
+        DestructionIsComplete: 170
+        DisposalCanBeSuspended: 180
+        ExportWithMetadata: 180
+        OriginalDateIsPreserved: 200
+        DestinationVerdict: 280
+        FollowUpRequired: 140
+        AssessmentDate: 150
+    # THE WORKLIST. Everything the program has not got to yet, oldest name
+    # first so the queue is stable between visits.
+    - title: "Not yet assessed"
+      fields: ["@identity", DestinationVerdict, PlatformCustodian]
+      where:
+        - { field: DestinationVerdict, op: eq, value: "Not assessed" }
+        - { field: LifecycleStatus, op: not_in, value: ["Retired"] }
+      sort:
+        - { field: Title, direction: asc }
+      widths:
+        Title: 300
+        BusinessDomain: 170
+        PlatformCustodian: 180
+        LifecycleStatus: 160
+        DestinationVerdict: 280
+    # THE ANSWER THE PROGRAM ACTUALLY NEEDS. Both members mean the same thing
+    # operationally: records put here now will have to be moved, or will be
+    # lost. The two are kept apart because the remedy differs - one needs a
+    # different destination and the other needs somebody to run the export.
+    - title: "Cannot keep a record here"
+      fields: ["@identity", "@capability", DestinationVerdict, ExportMethods,
+               VerdictBasis]
+      where:
+        - { field: DestinationVerdict, op: in,
+            value: ["Not a destination",
+                    "Interim only - export with metadata proven"] }
+        - { field: LifecycleStatus, op: not_in, value: ["Retired"] }
+      sort:
+        - { field: Title, direction: asc }
+      widths:
+        Title: 240
+        BusinessDomain: 160
+        PlatformCustodian: 160
+        LifecycleStatus: 150
+        RetentionAndDisposalInPlace: 200
+        DisposalIsEvidenced: 160
+        DestructionIsComplete: 170
+        DisposalCanBeSuspended: 180
+        ExportWithMetadata: 180
+        OriginalDateIsPreserved: 200
+        DestinationVerdict: 280
+        ExportMethods: 240
+        VerdictBasis: 320
+    # What is owed, and by whom. The action is one line by design, so this view
+    # is readable at a glance in a program meeting.
+    - title: "Follow-up required"
+      fields: ["@identity", DestinationVerdict, FollowUpAction, AssessedBy,
+               AssessmentDate]
+      where:
+        - { field: FollowUpRequired, op: eq, value: true }
+        - { field: LifecycleStatus, op: not_in, value: ["Retired"] }
+      sort:
+        - { field: AssessmentDate, direction: asc }
+      widths:
+        Title: 240
+        BusinessDomain: 160
+        PlatformCustodian: 160
+        LifecycleStatus: 150
+        DestinationVerdict: 280
+        FollowUpAction: 320
+        AssessedBy: 170
+        AssessmentDate: 150
+    # THE MULTI-VALUE VIEW, and the one place the arity earns its keep. "Which
+    # platforms have no self-service way to get the records out" is a question
+    # about a SET, and it cannot be asked of a prose column at all.
+    #
+    # `not_includes` renders <Or><IsNull/><Neq/></Or>, measured 2026-08-10:
+    # the rows without the member AND the empty rows. That is what is wanted
+    # here - a platform with no export route at all is the worst case, not an
+    # omission - and it is why the shared-drive demo row ships with Export
+    # Routes deliberately empty.
+    #
+    # PAIRED WITH AN INDEXED SCALAR ON PURPOSE. SharePoint refuses an index on
+    # a multi-value column outright, so a view filtering only on one warns
+    # `multi_value_filtered_view_unindexable` with NO remedy available: the
+    # generic advice ("index the filtered column") would send an author
+    # straight into a build error. Lifecycle Status is indexed and an AND
+    # narrows on any one indexed condition, so this filter is served past the
+    # list view threshold and the warning does not fire.
+    - title: "No bulk export route"
+      fields: ["@identity", ExportMethods, ExportWithMetadata,
+               DestinationVerdict]
+      where:
+        - { field: LifecycleStatus, op: not_in, value: ["Retired"] }
+        - { field: ExportMethods, op: not_includes,
+            value: "Self-service bulk export" }
+      sort:
+        - { field: Title, direction: asc }
+      widths:
+        Title: 260
+        BusinessDomain: 170
+        PlatformCustodian: 170
+        LifecycleStatus: 160
+        ExportMethods: 280
+        ExportWithMetadata: 180
+        DestinationVerdict: 280
+
+# Form layout: a strapline header and a sectioned body. Per-field description
+# hints render on the NEW form only; SharePoint suppresses column descriptions
+# on the Edit form. Section field lists are authored with INTERNAL names; the
+# build rewrites them to display titles.
+#
+# The body spends TWO CONSECUTIVE SECTIONS on the Assess beat, which section
+# 1.2 permits and this form depends on. "Can it keep a record" is the six
+# questions a custodian answers from memory before the interview; "Evidence and
+# method" is the three lists that qualify them, and they are filled in WITH the
+# assessor, in front of the platform. Merging them would put a wall of fields
+# in front of somebody who is trying to answer six questions.
+form_formatting:
+  Platform:
+    header: formatting/platform-form-header.json
+    body: formatting/platform-form-body.json
+
+# Conditional visibility. One rule, and it pairs with the save rule below.
+#
+# NOT conditioned on any multi-value column, and that is refused rather than
+# avoided (`multi_value_operand_unsupported`). Microsoft lists "Choice with
+# multiple selections" among the types conditional show/hide cannot read, and
+# the failure is the invisible kind: the formula stays syntactically valid, so
+# it saves, the read-back compares equal, the deploy phase passes, and the form
+# simply never reacts.
+form_visibility:
+  Platform:
+    columns:
+      # Off the form entirely until there is something to say. It reappears the
+      # moment Follow-up required is ticked, which is the same instant the save
+      # rule below starts asking for it - so the register never refuses a save
+      # while naming a field the author cannot see.
+      #
+      # SharePoint has no mechanism to clear a hidden field, so un-ticking the
+      # box hides the action and keeps whatever was typed. The save rule stops
+      # applying, and the stale text stays until somebody clears it. Said here
+      # because it is invisible on the form.
+      FollowUpAction:
+        when:
+          - { field: FollowUpRequired, op: eq, value: true }
+
+# Per-column save rules. Each column carries its own formula and its own
+# message, and they all run, unlike list_validation, where a list has one
+# ValidationFormula and every cross-column rule shares one message.
+#
+# The date is OPTIONAL, and the register's normal starting state is a platform
+# with a custodian, six Unknowns and no assessment at all. So the rule carries
+# the blank arm explicitly: what is enforced is "if there is a date, it is not
+# in the future", not "there is a date".
+column_validation:
+  Platform:
+    columns:
+      AssessmentDate:
+        when:
+          any_of:
+            - { field: AssessmentDate, op: is_null }
+            - { field: AssessmentDate, op: leq, value: today }
+        message: "An assessment cannot have happened in the future. Use the date the verdict was actually reached."
+
+# Save-time enforcement, stored on the LIST so it may reference any column.
+# Written as an implication: `if A then B` is `any_of[not A, B]`, which is why
+# it starts with the case the rule does not apply to.
+#
+# A BOOLEAN AND A TEXT COLUMN IN ONE RULE, which is legal and which no other
+# shipped family does. It was built and verified rather than assumed: the
+# boolean renders as the literal FALSE (validation formulas take TRUE/FALSE,
+# not 1/0) and the text arm renders NOT(ISBLANK(...)). The combination is
+# `=OR([FollowUpRequired]=FALSE,NOT(ISBLANK([FollowUpAction])))`, which is in
+# `build/deploy-manifest.md` on every build of this family.
+#
+# IT ONLY WORKS BECAUSE FollowUpAction IS `nvarchar`. A validation formula
+# cannot reference a multi-line column at all - SharePoint refuses the rule
+# outright - so the obvious `longtext` here would have made this whole rule
+# impossible. That is the reason the follow-up action is single-line, and it is
+# the good reason as well as the enforced one: an action that needs a paragraph
+# needs a project, and the project belongs somewhere else.
+#
+# NOTHING ABOUT THE VERDICT ITSELF is enforceable. VerdictBasis is `longtext`
+# for the same rule, and every capability answer is free to be Unknown under a
+# confident verdict. Those are governance checks in 50-govern/governance.md
+# rather than silent gaps.
+list_validation:
+  Platform:
+    when:
+      any_of:
+        - { field: FollowUpRequired, op: eq, value: false }
+        - { field: FollowUpAction, op: is_not_null }
+    message: "Follow-up required is ticked, so say what the follow-up is. One line, with who owns it. If it needs a paragraph it needs a project, and this register is not where the project lives."
+
+# Demo rows (emitted as demo-data.js ONLY when built with --seed). Every Title
+# starts "[DEMO] ", the marker rollback.js trusts to delete demo-only lists
+# without its non-empty refusal. Dates are today+/-N so the rolling views land
+# correctly on whatever day the demo runs, and "@me" is whoever pastes the
+# script.
+#
+# Six platforms, and between them they fill all five views and every colour
+# map. NO COMMERCIAL PRODUCT IS NAMED, and this is a rule rather than a
+# preference: a shipped row attaching "no bulk export, verdict: not a
+# destination" to a vendor's name would be a fabricated capability claim about
+# a third party, in the wheel, pasted into every adopter's tenant. Generic
+# roles carry the teaching perfectly well.
+#
+# ONE OF THEM IS DELIBERATELY BAD: the clinical governance shared drive
+# answers No or Unknown to everything, holds an EMPTY set of export routes,
+# and is the row the "No bulk export route" view is built to surface. It is
+# also the row people recognise, which is the point.
+demo_items:
+  Platform:
+    # The good case. Manages its own retention and disposal, which is the first
+    # of the two lawful shapes, and needs no follow-up.
+    - key: platform-emr
+      values:
+        Title: "[DEMO] Electronic medical record"
+        BusinessDomain: "Clinical"
+        PlatformCustodian: "@me"
+        LifecycleStatus: "In service"
+        RetentionAndDisposalInPlace: "Yes"
+        DisposalIsEvidenced: "Yes"
+        DestructionIsComplete: "Partly"
+        DisposalCanBeSuspended: "Yes"
+        ExportWithMetadata: "Yes"
+        OriginalDateIsPreserved: "Yes"
+        SuspensionTriggers: ["Legal proceedings", "Unfinalised access request",
+                             "Unfinalised audit or investigation",
+                             "Organisational freeze"]
+        AuditEventsLogged: ["View", "Create", "Edit", "Export", "Delete",
+                            "Permission change"]
+        ExportMethods: ["Vendor-run bulk extract", "Self-service bulk export",
+                        "Documented API extract"]
+        DestinationVerdict: "Manages retention and disposal in place"
+        VerdictBasis: "Demo row. Retention rules are configured per record category and disposal runs on a schedule with a report. Destruction is Partly because the vendor confirmed backups are overwritten on a 35-day cycle but could not demonstrate the preservation store is included; that is the one open question and it does not change the verdict."
+        FollowUpRequired: false
+        AssessedBy: "@me"
+        AssessmentDate: "today-45"
+    # The common case, and the one that makes the register worth keeping: it
+    # can do the job once somebody turns something on. Fills Follow-up
+    # required, and its Suspension Triggers list is short on purpose.
+    - key: platform-incidents
+      values:
+        Title: "[DEMO] Clinical incident and feedback system"
+        BusinessDomain: "Quality and safety"
+        PlatformCustodian: "@me"
+        LifecycleStatus: "In service"
+        RetentionAndDisposalInPlace: "Partly"
+        DisposalIsEvidenced: "No"
+        DestructionIsComplete: "Unknown"
+        DisposalCanBeSuspended: "Partly"
+        ExportWithMetadata: "Yes"
+        OriginalDateIsPreserved: "Yes"
+        SuspensionTriggers: ["Legal proceedings"]
+        AuditEventsLogged: ["View", "Edit", "Export"]
+        ExportMethods: ["Self-service bulk export", "Report output only"]
+        DestinationVerdict: "Suitable with named configuration"
+        VerdictBasis: "Demo row. The platform can hold records to their retention, but disposal currently leaves no evidence and only a legal-proceedings freeze is available. Both are licensed features that are not enabled. Suitable once they are, and not before."
+        FollowUpRequired: true
+        FollowUpAction: "Enable the disposal audit log and the wider hold module; owner is the platform custodian."
+        AssessedBy: "@me"
+        AssessmentDate: "today-20"
+    # THE ROW THE TEMPLATE EXISTS FOR. Everybody has one of these. Export
+    # Routes is deliberately EMPTY, which is what the "No bulk export route"
+    # view is built on and what makes `not_includes` visibly do its job: an
+    # empty set matches it.
+    - key: platform-shared-drive
+      values:
+        Title: "[DEMO] Shared drive - clinical governance"
+        BusinessDomain: "Supporting systems"
+        PlatformCustodian: "@me"
+        LifecycleStatus: "In service"
+        RetentionAndDisposalInPlace: "No"
+        DisposalIsEvidenced: "No"
+        DestructionIsComplete: "No"
+        DisposalCanBeSuspended: "No"
+        ExportWithMetadata: "No"
+        OriginalDateIsPreserved: "No"
+        SuspensionTriggers: []
+        AuditEventsLogged: []
+        ExportMethods: []
+        DestinationVerdict: "Not a destination"
+        VerdictBasis: "Demo row, and deliberately the worst one, because every service has this folder. There is no retention model, no disposal, no audit and no export beyond dragging files somewhere else by hand, which loses the dates. Scanned records must not be filed here. This is the row the whole register exists to produce."
+        FollowUpRequired: true
+        FollowUpAction: "Agree a destination for the categories currently filed here; owner is the digitisation program lead."
+        AssessedBy: "@me"
+        AssessmentDate: "today-12"
+    # The second lawful shape, on its own. It cannot manage disposal, but the
+    # records and their metadata can be got out intact, so it is a staging
+    # point rather than a home. Fills "Cannot keep a record here" beside the
+    # shared drive, for a completely different reason.
+    - key: platform-rostering
+      values:
+        Title: "[DEMO] Rostering and time capture system"
+        BusinessDomain: "People and culture"
+        PlatformCustodian: "@me"
+        LifecycleStatus: "In service"
+        RetentionAndDisposalInPlace: "No"
+        DisposalIsEvidenced: "No"
+        DestructionIsComplete: "Unknown"
+        DisposalCanBeSuspended: "No"
+        ExportWithMetadata: "Yes"
+        OriginalDateIsPreserved: "Partly"
+        SuspensionTriggers: []
+        AuditEventsLogged: ["Edit", "Permission change"]
+        ExportMethods: ["Vendor-run bulk extract", "Documented API extract"]
+        DestinationVerdict: "Interim only - export with metadata proven"
+        VerdictBasis: "Demo row. Nothing here manages retention, but a vendor extract was run in front of the assessor and the records came out with their metadata and their original dates. Records may sit here while they are current and must be extracted to the corporate destination before the platform is renewed."
+        FollowUpRequired: false
+        AssessedBy: "@me"
+        AssessmentDate: "today-60"
+    # Not looked at yet, which is the honest state of most of a real
+    # inventory. Fills "Not yet assessed" and is the row that shows what the
+    # Unknown default is for.
+    - key: platform-ledger
+      values:
+        Title: "[DEMO] Finance and procurement ledger"
+        BusinessDomain: "Finance and procurement"
+        PlatformCustodian: "@me"
+        LifecycleStatus: "Under review"
+        RetentionAndDisposalInPlace: "Unknown"
+        DisposalIsEvidenced: "Unknown"
+        DestructionIsComplete: "Unknown"
+        DisposalCanBeSuspended: "Unknown"
+        ExportWithMetadata: "Unknown"
+        OriginalDateIsPreserved: "Unknown"
+        DestinationVerdict: "Not assessed"
+        VerdictBasis: "Demo row. Custodian identified and the interview is booked; nothing has been answered yet. Every capability answer sits at Unknown, which is what Unknown is for - none of these is a No."
+        FollowUpRequired: false
+    # Retired, and out of the way. The default view hides it, which is the
+    # whole reason a register that only grows stays readable. It is kept
+    # because "what did we decide about the old system" is asked for years
+    # after the system is gone.
+    - key: platform-legacy-pas
+      values:
+        Title: "[DEMO] Legacy patient administration archive"
+        BusinessDomain: "Clinical"
+        PlatformCustodian: "@me"
+        LifecycleStatus: "Retired"
+        RetentionAndDisposalInPlace: "No"
+        DisposalIsEvidenced: "No"
+        DestructionIsComplete: "No"
+        DisposalCanBeSuspended: "Partly"
+        ExportWithMetadata: "Partly"
+        OriginalDateIsPreserved: "Yes"
+        SuspensionTriggers: ["Legal proceedings", "Organisational freeze"]
+        AuditEventsLogged: ["View", "Export"]
+        ExportMethods: ["Vendor-run bulk extract", "One item at a time"]
+        DestinationVerdict: "Not a destination"
+        VerdictBasis: "Demo row. Read-only since the replacement went live. The verdict is kept rather than deleted because the question that gets asked years later is what we decided about the old system, and this is the answer."
+        FollowUpRequired: false
+        AssessedBy: "@me"
+        AssessmentDate: "today-400"
