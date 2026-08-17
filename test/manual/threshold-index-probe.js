@@ -584,7 +584,7 @@
   // identical transcripts otherwise. This has already cost a round trip of
   // diagnosis, where the only tell was a stack-trace line number. Injected by
   // render_probes.py from a hash of this template and every partial.
-  log('INFO', 'probe revision 0d49fec7. Quote this when reporting results.');
+  log('INFO', 'probe revision 2bea7a39. Quote this when reporting results.');
 
   // Say it at RUN TIME, not only in the header. An operator set this flag,
   // reasonably believed it was resetting the fixture between runs, and read
@@ -2595,12 +2595,13 @@
                     IDX_LEAF, true);
     await guardPair('GRDNUL', 'CAML IsNull, INDEXED DateTime, GUARDED as #272 emits it',
                     NUL_LEAF, true);
-    // The control: the UNINDEXED twin, which must be refused at this size. If
-    // guarding it makes it served, the conjunct changed plan selection and
-    // GRDIDX being green says nothing about the index. Requires IDXCLR to have
-    // restored the control, and IDXSET says whether it did.
+    // The control: the UNINDEXED twin. It expects SERVED, not refused, and the
+    // run of 2026-08-17 is why. On this surface the threshold does not throw;
+    // GRDONLY came back HTTP 200 holding exactly 5,000 of 5,614, a silently
+    // truncated answer. So the unindexed twin is served too, and what the
+    // guard must not change is the COUNT, which is what guardPair compares.
     await guardPair('GRDUNI', 'CAML comparison, UNINDEXED twin, GUARDED (control)',
-                    UNI_LEAF, false);
+                    UNI_LEAF, true);
 
     // The guard alone, matching every row in the list, so it must be refused
     // for the same reason any unfiltered query is. Served would mean SharePoint
