@@ -33,7 +33,7 @@ from typing import Any
 import pytest
 from _paths import SOLUTION_TEMPLATES
 
-from dbml_sharepoint.analysis.conditions import normalise
+from dbml_sharepoint.analysis.conditions import _NULL_INCLUSIVE_NEGATIVES, normalise
 from dbml_sharepoint.analysis.group_description import description_budget
 from dbml_sharepoint.analysis.icons import FLEET_ICONS
 from dbml_sharepoint.analysis.list_description import (
@@ -1139,7 +1139,7 @@ def _evaluate_leaf(leaf: Leaf, row: dict[str, Any], types: dict[str, str]) -> bo
         # place the empty value outside the compared literal, and every other
         # comparison excludes it. `not_includes` is there on probe C9,
         # 2026-08-10, which returned the empty row.
-        return leaf.op in ("neq", "not_in", "not_includes")
+        return leaf.op in _NULL_INCLUSIVE_NEGATIVES
     if leaf.op in ("includes", "not_includes"):
         members = raw if isinstance(raw, list) else [raw]
         hit = any(_compare("eq", member, leaf.value) for member in members)

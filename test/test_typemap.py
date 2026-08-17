@@ -284,6 +284,14 @@ def test_a_multi_value_column_is_never_uniqueness_capable() -> None:
     """
     assert supports_unique(Column(name="Events", type="status"), ENUM_NAMES) is True
     assert supports_unique(Column(name="Events", type="status[]"), ENUM_NAMES) is False
+    # The ref arm short-circuits before anything reads the type, so this is the
+    # one case where the arity guard is the only thing answering. Without it the
+    # two lines above still pass, because `status[]` is in neither vocabulary.
+    assert supports_unique(
+        Column(name="Events", type="status[]",
+               ref=Reference(target_table="Projects", target_column="Id")),
+        ENUM_NAMES,
+    ) is False
 
 
 # --- The single-authority pin ------------------------------------------------

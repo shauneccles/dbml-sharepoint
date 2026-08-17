@@ -232,9 +232,13 @@ def check(vc: ValidationContext) -> list[Finding]:
                             location=at,
                         ))
                     continue
+                # The enum question first: `_resolve_column` resolves an enum
+                # before a scalar, so an enum named `date` is a Choice column
+                # there and has to be one here too.
+                enum_name = choice_enum_for(col_type or "", enum_by_name)
                 # Through `element_type`, because `date[]` is not a key in
                 # DATE_TYPES and the rule read as though it covered the column.
-                if element_type(col_type or "") in DATE_TYPES:
+                if enum_name is None and element_type(col_type or "") in DATE_TYPES:
                     valid_date = False
                     if isinstance(value, str) and TODAY_SENTINEL.match(value):
                         valid_date = True
@@ -253,9 +257,8 @@ def check(vc: ValidationContext) -> list[Finding]:
                             location=at,
                         ))
                     continue
-                # Two steps rather than a lookup: the resolver answers with the
-                # NAME, and this rule needs the members behind it.
-                enum_name = choice_enum_for(col_type or "", enum_by_name)
+                # The resolver answers with the name; this rule needs the
+                # members behind it.
                 if enum_name is None:
                     continue
                 demo_enum = enum_by_name[enum_name]
