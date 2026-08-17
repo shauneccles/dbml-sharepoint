@@ -39,6 +39,28 @@
  * it. `ID` being indexed by default is the reason to expect no change; it
  * is a reason rather than a measurement, which is what these rows fix.
  *
+ * MEASURED 2026-08-17, revision 39c97f15, at 5,614 rows. The guard does not
+ * change what SharePoint serves.
+ *
+ *   GRDONLY is what makes the rest readable, and it answered twice. With
+ *   RowLimit 200 it returned exactly 200 and said nothing. With RowLimit
+ *   above the list it returned exactly 5,000 of 5,614: HTTP 200, no error, a
+ *   SILENTLY TRUNCATED answer. So the threshold IS enforced at this size, and
+ *   the guard does NOT exempt a query from it. Both halves matter: the first
+ *   is the control every other guard row needs, the second says the conjunct
+ *   is not a way round the threshold.
+ *
+ *   GRDIDX and GRDNUL both returned 56 rows guarded and 56 unguarded, which
+ *   is the complete expected count at this size (floor(5614/100)), not a
+ *   truncation. An indexed filter keeps its whole answer with the conjunct
+ *   attached, on a list where an unindexed scan is being cut off at 5,000.
+ *
+ *   GRDUNI is still unreadable and TWINCK says why: Bucket returned 56 and
+ *   Shadow 50, so the twins differ by six rows and no longer differ ONLY in
+ *   the index. That is a seed fault, not an indexing result. What GRDUNI
+ *   would have added is covered in part by GRDONLY, which shows the guard
+ *   does not rescue a query the threshold refuses to serve whole.
+ *
  * GRDIDX and GRDNUL are the measurement. Each sends the filter twice,
  * unguarded then guarded, seconds apart on the same list, and compares the
  * two. That is why they sit OUTSIDE the checkpoint gate the rest of this file
@@ -406,7 +428,6 @@
   expect('CMPUNI', 'OData comparison, UNINDEXED twin of Bucket (negative control)');
   expect('NULIDX', 'OData null test, INDEXED DateTime');
   expect('CMPCAM', 'CAML comparison, INDEXED Text');
-  expect('TWINCK', 'Do the indexed and unindexed twins still match the same rows?');
   expect('TWINCK', 'Do the indexed and unindexed twins still match the same rows?');
   expect('GRDIDX', 'CAML comparison, INDEXED Text, GUARDED as #272 emits it');
   expect('GRDNUL', 'CAML IsNull, INDEXED DateTime, GUARDED as #272 emits it');
