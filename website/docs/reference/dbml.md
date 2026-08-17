@@ -184,37 +184,6 @@ in each schema are the model for tone.
 The legacy bare `choice` type is rejected. Declare an enum so the
 choice set is part of the reviewed schema.
 
-### Multi-value columns are not emitted
-
-Every column in the table above is single-valued. This tool emits no
-`MultiChoice`, no multi-value lookup and no multi-value Person column, and
-there is no syntax that asks for one. An array-suffixed type such as
-`audit_event[]` parses as DBML but fails the build with `unknown type
-'audit_event[]'`, naming the enum it is closest to.
-
-That refusal is deliberate rather than pending. A multi-value column cannot
-be indexed and cannot enforce unique values ([supported index column
-types](https://support.microsoft.com/en-us/office/add-an-index-to-a-sharepoint-column-f3f00554-b7dc-44d1-a2ed-d477eac463b0),
-[unique column
-types](https://support.microsoft.com/en-US/SharePoint/lists/data-and-lists/create-list-relationships-by-using-lookup-columns)),
-and conditional show/hide formulas do not support "Choice with multiple
-selections" ([conditional
-formulas](https://learn.microsoft.com/sharepoint/dev/declarative-customization/list-form-conditional-show-hide)).
-Several further behaviours, the item value's write and read-back shape, and
-which CAML predicates filter such a column, are not documented at all;
-`test/manual/multi-value-probe.js` exists to settle them against a live site
-before any of it is built.
-
-Model a genuinely multi-valued fact as a child entity with one row per value
-today. Note that this is not a decision to defer, because of what *this tool*
-does rather than any claim about SharePoint: the deployer treats a field's
-`TypeAsString` as immutable and aborts when an existing column reads back with
-a different one, so a column shipped as text or as a single Choice cannot be
-converted in place by editing the schema and re-running a build. Whether
-SharePoint itself would permit that particular conversion through list settings
-is a separate question this repository has not established, and the deploy
-fails closed either way.
-
 ## Enums
 
 ```dbml
