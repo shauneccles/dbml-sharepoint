@@ -33,7 +33,12 @@ from typing import Any
 import pytest
 from _paths import SOLUTION_TEMPLATES
 
-from dbml_sharepoint.analysis.conditions import normalise
+from dbml_sharepoint.analysis.conditions import (
+    CAML_VIEW_FILTER_GUARD,
+    SYSTEM_COLUMN_TYPES,
+    normalise,
+    to_caml_protected,
+)
 from dbml_sharepoint.analysis.group_description import description_budget
 from dbml_sharepoint.analysis.icons import FLEET_ICONS
 from dbml_sharepoint.analysis.list_description import (
@@ -1942,3 +1947,53 @@ def test_no_two_templates_declare_the_same_entity_name() -> None:
         "would collide on a shared site without a prefix:\n"
         + "\n".join(f"  {e}: {', '.join(f)}" for e, f in sorted(collisions.items()))
     )
+
+
+@pytest.mark.parametrize("template", _all_templates())
+def test_every_shipped_view_filter_is_emitted_protected(template: str) -> None:
+    """No shipped view may be left in a shape the filter editor will open.
+
+    Measured 2026-08-17: the editor writes back only the ten conditions it
+    renders, so a longer filter is truncated by an operator pressing Save
+    (caml-chain-depth-probe.js U2), and it refuses to open a filter whose
+    right child is a group (W2 against W4, T2).
+
+    Every template, not just the uplifted ones: an unprotected filter is a
+    live defect wherever it ships. 26 of the 192 shipped filtered views were
+    protected before this change, by which clause happened to render last,
+    and nothing held that in place.
+    """
+    loaded = _load(template)
+    guarded = 0
+    for entity, views in sorted(loaded.mapping.views.items()):
+        types = {**SYSTEM_COLUMN_TYPES, **loaded.column_types(entity)}
+        for view in views:
+            if view.where is None:
+                continue
+            rendered = to_caml_protected(view.where, types)
+            assert rendered.endswith(f"{CAML_VIEW_FILTER_GUARD}</And>"), (
+                f"{template}/{entity}/{view.title}"
+            )
+            guarded += 1
+    # A template may legitimately declare no filter, so there is no floor
+    # here. That the corpus as a whole has not gone empty, which would make
+    # every one of these pass vacuously, is asserted by the test below.
+    del guarded
+
+
+def test_the_shipped_corpus_still_declares_filtered_views() -> None:
+    """The per-template test above passes vacuously on a corpus with none.
+
+    Measured 2026-08-17: 192 declared view filters across the shipped
+    families. The floor is deliberately well under that, because this exists
+    to catch the corpus going empty, not to pin a number that legitimately
+    moves whenever a family gains a view.
+    """
+    total = sum(
+        1
+        for template in _all_templates()
+        for views in _load(template).mapping.views.values()
+        for view in views
+        if view.where is not None
+    )
+    assert total > 100, total
