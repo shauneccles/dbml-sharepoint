@@ -3267,29 +3267,39 @@
       return;
     }
     const listPath = `web/lists/getbytitle('${odataName(guarded.list)}')`;
+    // The cached enumeration was taken BEFORE this run's writes, so it holds
+    // no view this run created and a rename still under its old title. Drop
+    // the entry and let listViewShapes read once more: one enumeration per
+    // list is this file's documented cheap path, and views/getbytitle would
+    // paint the console red on a miss for operators to read as a failure.
+    delete viewShapesByList[listPath];
+
     let listId = null;
     let viewId = null;
+    let why = null;
     try {
       const listResp = await fetchWithRetry(apiUrl(`${listPath}?$select=Id`), {
         headers: { 'Accept': 'application/json;odata=verbose' },
       });
-      if (listResp.ok) listId = ((await listResp.json()) || {}).d.Id;
-      // Read live rather than through listViewShapes, which memoises the
-      // enumeration deployView took BEFORE creating anything. On a first
-      // deployment that cache holds no declared view, so the lookup would
-      // miss and this check would warn its way out of running on the very
-      // deploy that introduced the protection. A rename has the same shape.
-      const viewResp = await fetchWithRetry(
-        apiUrl(`${listPath}/views/getbytitle('${odataName(guarded.title)}')?$select=Id`),
-        { headers: { 'Accept': 'application/json;odata=verbose' } },
-      );
-      if (viewResp.ok) viewId = ((await viewResp.json()) || {}).d.Id;
+      if (listResp.ok) {
+        listId = ((await listResp.json()) || {}).d.Id;
+      } else {
+        why = `list read HTTP ${listResp.status}: ${spError(await listResp.text())}`;
+      }
+      const shape = (await listViewShapes(listPath)).find((s) => s.Title === guarded.title);
+      if (shape) {
+        viewId = shape.Id;
+      } else if (why === null) {
+        why = `'${guarded.title}' is not among the list's views after deployment`;
+      }
     } catch (err) {
-      listId = null;
+      // Surfaced, not swallowed. A discarded message here leaves an operator
+      // with "could not identify" and nothing to act on.
+      why = (err && err.message) || String(err);
     }
     if (!listId || !viewId) {
       log('WARN', `[Phase 3.1] Could not identify '${guarded.title}' to confirm the`
-        + ' filter editor refuses it. The view itself is verified; the protection is not.');
+        + ` filter editor refuses it (${why}). The view itself is verified; the protection is not.`);
       return;
     }
 
@@ -3298,7 +3308,10 @@
     let res;
     let body;
     try {
-      res = await fetch(pageUrl, { credentials: 'same-origin' });
+      // Through fetchWithRetry like every other request in this script: the
+      // settings page is throttled the same way, and a bare fetch would turn
+      // a 429 into "could not confirm" on a run that only needed to wait.
+      res = await fetchWithRetry(pageUrl, { credentials: 'same-origin' });
       body = await res.text();
     } catch (err) {
       log('WARN', `[Phase 3.1] Could not read the view settings page (${err.message}).`
