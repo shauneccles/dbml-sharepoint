@@ -21,6 +21,33 @@
  * prevent exceeding the threshold, and _LOOKUP_FIELD_TYPES already acts on
  * that, but on documentation alone.
  *
+ * THE GUARD ROWS, added 2026-08-17 for #272. Every view this tool emits now
+ * carries a conjunct that makes the filter editor refuse to open it, so an
+ * operator cannot silently truncate a long filter by pressing Save:
+ *
+ *     <And>{the declared filter}<Or><IsNotNull ID/><IsNull ID/></Or></And>
+ *
+ * That the conjunct removes no ROWS is measured (caml-chain-depth-probe.js
+ * T3, 41 of 41; view-edit-page-probe.js S2). Whether it changes what
+ * SharePoint will SERVE past the list view threshold is a different
+ * question, and both of those fixtures are far below it: 41 rows and 3.
+ *
+ * It matters because the conjunct is on ID, which is not the declared
+ * filter's column. If adding it changes which predicate the query is
+ * planned against, a view that worked at 6,000 rows begins returning a
+ * partial answer or none, on the largest lists, and the build cannot see
+ * it. `ID` being indexed by default is the reason to expect no change; it
+ * is a reason rather than a measurement, which is what these rows fix.
+ *
+ * GRDIDX and GRDNUL are the measurement: the guarded form of CMPCAM and
+ * NULCAM, which must return the same rows those two do. GRDUNI and GRDONLY
+ * are the controls that stop a green pair being read as good news. GRDUNI
+ * guards the UNINDEXED twin, which CMPUNI establishes is refused at this
+ * size; if guarding it makes it SERVED, the conjunct is changing plan
+ * selection and the whole comparison is suspect. GRDONLY sends the guard
+ * with no filter at all, matching every row in the list, and must be
+ * refused for the same reason.
+ *
  * WHY A NEW FIXTURE: native-index-probe.js ran on 2026-07-30 and established
  * none of it. Its metadata half is void (SP.Field.Indexed read false for ID
  * itself), and its behavioural half never ran, because the site's largest
@@ -47,6 +74,10 @@
  *   CMPUNI  OData comparison, UNINDEXED twin      (negative control)
  *   NULIDX  OData null test, INDEXED DateTime
  *   CMPCAM  CAML  comparison, INDEXED Text
+ *   GRDIDX  CAML  comparison, INDEXED Text, GUARDED   (#272)
+ *   GRDNUL  CAML  <IsNull>, INDEXED DateTime, GUARDED (#272)
+ *   GRDUNI  CAML  comparison, UNINDEXED twin, GUARDED (#272 negative control)
+ *   GRDONLY CAML  the guard ALONE, matching every row (#272 negative control)
  *   NULCAM  CAML  <IsNull>, INDEXED DateTime      (the question as _views.py asks it)
  *   PERSID  OData comparison, INDEXED Person
  *   LOOKID  OData comparison, INDEXED Lookup
@@ -360,6 +391,10 @@
   expect('CMPUNI', 'OData comparison, UNINDEXED twin of Bucket (negative control)');
   expect('NULIDX', 'OData null test, INDEXED DateTime');
   expect('CMPCAM', 'CAML comparison, INDEXED Text');
+  expect('GRDIDX', 'CAML comparison, INDEXED Text, GUARDED as #272 emits it');
+  expect('GRDNUL', 'CAML IsNull, INDEXED DateTime, GUARDED as #272 emits it');
+  expect('GRDUNI', 'CAML comparison, UNINDEXED twin, GUARDED (control)');
+  expect('GRDONLY', 'CAML the guard ALONE, matching every row (control)');
   expect('NULCAM', 'CAML IsNull, INDEXED DateTime (the question as _views.py asks it)');
   expect('PERSID', 'OData comparison, INDEXED Person');
   expect('LOOKID', 'OData comparison, INDEXED Lookup');
@@ -1491,6 +1526,10 @@
       ['CMPUNI', 'OData comparison, UNINDEXED twin of Bucket (negative control)'],
       ['NULIDX', 'OData null test, INDEXED DateTime'],
       ['CMPCAM', 'CAML comparison, INDEXED Text'],
+      ['GRDIDX', 'CAML comparison, INDEXED Text, GUARDED as #272 emits it'],
+      ['GRDNUL', 'CAML IsNull, INDEXED DateTime, GUARDED as #272 emits it'],
+      ['GRDUNI', 'CAML comparison, UNINDEXED twin, GUARDED (control)'],
+      ['GRDONLY', 'CAML the guard ALONE, matching every row (control)'],
       ['NULCAM', 'CAML IsNull, INDEXED DateTime (the question as _views.py asks it)'],
       ['PERSID', 'OData comparison, INDEXED Person'],
       ['LOOKID', 'OData comparison, INDEXED Lookup'],
@@ -1703,6 +1742,41 @@
   await askCaml(
     'NULCAM', 'CAML IsNull, INDEXED DateTime (the question as _views.py asks it)',
     "<Where><IsNull><FieldRef Name='ClosedAt'/></IsNull></Where>", matched);
+
+  // ---- Does the #272 guard change what is SERVED here? -----------------
+  // Spelled exactly as jsgen emits it, double quotes included, so this
+  // measures the deployed string rather than a paraphrase of it. It is one
+  // constant in analysis/conditions.py, CAML_VIEW_FILTER_GUARD.
+  // One line, unbroken, so a test can compare it to the emitted constant.
+  const GUARD = '<Or><IsNotNull><FieldRef Name="ID"/></IsNotNull><IsNull><FieldRef Name="ID"/></IsNull></Or>';
+  const guarded = (where) => `<Where><And>${where}${GUARD}</And></Where>`;
+  const IDX_LEAF = `<Eq><FieldRef Name='Bucket'/><Value Type='Text'>${RARE_BUCKET}</Value></Eq>`;
+  const UNI_LEAF = `<Eq><FieldRef Name='Shadow'/><Value Type='Text'>${RARE_BUCKET}</Value></Eq>`;
+
+  await askCaml(
+    'GRDIDX', 'CAML comparison, INDEXED Text, GUARDED as #272 emits it',
+    guarded(IDX_LEAF), matched);
+  await askCaml(
+    'GRDNUL', 'CAML IsNull, INDEXED DateTime, GUARDED as #272 emits it',
+    guarded("<IsNull><FieldRef Name='ClosedAt'/></IsNull>"), matched);
+
+  // The two controls. Both are EXPECTED to be refused, so they pass null and
+  // are judged on the outcome rather than on a row count: a refusal here is
+  // the result, and asserting a count would report it as a failure.
+  //
+  // GRDUNI guards the twin CMPUNI establishes is refused at this size. SERVED
+  // would mean the conjunct changed plan selection, and GRDIDX being green
+  // would then say nothing about the index.
+  await askCaml(
+    'GRDUNI', 'CAML comparison, UNINDEXED twin, GUARDED (control)',
+    guarded(UNI_LEAF), null);
+  // GRDONLY sends the guard with nothing else, so it matches every row in the
+  // list. SERVED would mean SharePoint treats it as satisfiable without
+  // scanning, which would make it a filter rather than the inert conjunct
+  // every other row assumes.
+  await askCaml(
+    'GRDONLY', 'CAML the guard ALONE, matching every row (control)',
+    `<Where>${GUARD}</Where>`, null);
 
   // ---- How many JOINS may one view project? (issue #44) ----------------
   // A different ceiling from everything else here, and a nastier one: the list

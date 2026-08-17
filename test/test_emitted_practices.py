@@ -165,3 +165,25 @@ def test_every_committed_writer_pins_lf() -> None:
         f"write_text without newline=\"\\n\": {offenders}. Use the helper for "
         f"the surface you are writing, or pass newline explicitly."
     )
+
+
+def test_the_threshold_probe_measures_the_guard_this_tool_emits() -> None:
+    """A probe measuring a paraphrase of the emitted string measures nothing.
+
+    `threshold-index-probe.js` asks whether the #267 guard changes what
+    SharePoint serves past the list view threshold. That answer is only about
+    the deployed shape if the probe sends the deployed shape, and the two
+    live in different files with nothing joining them.
+
+    Verbatim rather than equivalent: an XML-equivalent spelling would still
+    be a different string, and this project has already carried an OData
+    result over to a CAML question once.
+    """
+    from dbml_sharepoint.analysis.conditions import CAML_VIEW_FILTER_GUARD
+
+    probe = (PACKAGE.parent.parent / "test" / "manual" / "threshold-index-probe.js")
+    assert CAML_VIEW_FILTER_GUARD in probe.read_text(encoding="utf-8"), (
+        f"{probe.name} does not contain CAML_VIEW_FILTER_GUARD verbatim, so "
+        f"its GRDIDX/GRDNUL/GRDUNI/GRDONLY rows are measuring some other "
+        f"string. Re-render the probe after changing the constant."
+    )
