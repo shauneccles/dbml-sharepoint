@@ -1141,7 +1141,11 @@ def _evaluate_leaf(leaf: Leaf, row: dict[str, Any], types: dict[str, str]) -> bo
         # 2026-08-10, which returned the empty row.
         return leaf.op in _NULL_INCLUSIVE_NEGATIVES
     if leaf.op in ("includes", "not_includes"):
-        members = raw if isinstance(raw, list) else [raw]
+        if not isinstance(raw, list):
+            # DEMO_MULTI_VALUE_NOT_A_LIST refuses a scalar on such a column, so
+            # this is the two readers having drifted, not an authored shape.
+            raise _UnevaluableError(f"{leaf.field}: {leaf.op} against a non-list")
+        members = raw
         hit = any(_compare("eq", member, leaf.value) for member in members)
         return hit if leaf.op == "includes" else not hit
     if leaf.op in ("in", "not_in"):
@@ -1243,11 +1247,16 @@ def test_a_view_filtering_a_multi_value_column_is_evaluable() -> None:
     assert _evaluate_leaf(Leaf("Events", "not_includes", "Edit"), row, _MULTI_VALUE_TYPES) is False
 
 
-def test_a_scalar_value_still_answers_a_multi_value_operator() -> None:
-    """A demo row may give one member without wrapping it in a list."""
-    row = {"Events": "Edit"}
-    assert _evaluate_leaf(Leaf("Events", "includes", "Edit"), row, _MULTI_VALUE_TYPES) is True
-    assert _evaluate_leaf(Leaf("Events", "includes", "View"), row, _MULTI_VALUE_TYPES) is False
+def test_a_scalar_value_under_a_multi_value_operator_is_unevaluable() -> None:
+    """The grammar refuses this shape, so the evaluator must not invent it.
+
+    `_check_arity` refuses `includes` on a single-value column and
+    `DEMO_MULTI_VALUE_NOT_A_LIST` refuses a scalar demo value on a
+    multi-value one, so a bare member reaching here means the two readers
+    have drifted. Guessing a one-member list would hide that.
+    """
+    with pytest.raises(_UnevaluableError):
+        _evaluate_leaf(Leaf("Events", "includes", "Edit"), {"Events": "Edit"}, _MULTI_VALUE_TYPES)
 
 
 def test_an_empty_multi_value_column_reads_as_null() -> None:

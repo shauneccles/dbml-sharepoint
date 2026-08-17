@@ -133,11 +133,10 @@ def check(vc: ValidationContext) -> list[Finding]:
                             seen.append(member)
                         elif member not in repeated:
                             repeated.append(member)
-                    if repeated:
+                    for member in repeated:
                         findings.append(Finding(
                             FindingCode.DEMO_MULTI_VALUE_DUPLICATE_MEMBER,
-                            f"{ctx}: {col_name} repeats "
-                            f"{', '.join(repr(m) for m in repeated)}. The write "
+                            f"{ctx}: {col_name} repeats {member!r}. The write "
                             f"shape measured as M3 on 2026-08-17 is a collection "
                             f"of choices and nothing "
                             f"has measured what a repeat reads back as, so declare "
@@ -271,7 +270,13 @@ def check(vc: ValidationContext) -> list[Finding]:
                     if is_multi_value(col_type or "") and isinstance(value, list)
                     else [value]
                 )
+                # Distinct, so a member repeated twice is one mistake and one
+                # finding. The duplicate rule above is what reports the repeat.
+                distinct: list[object] = []
                 for member in declared:
+                    if member not in distinct:
+                        distinct.append(member)
+                for member in distinct:
                     if member not in demo_enum.members:
                         findings.append(Finding(
                             FindingCode.DEMO_ENUM_VALUE_UNKNOWN,
