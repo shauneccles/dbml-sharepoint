@@ -20,11 +20,18 @@ TEMPLATES = PACKAGE / "templates"
 # The transport itself, which is the one place a bare fetch belongs.
 _TRANSPORT = "_http.js.j2"
 
-# Files that legitimately resolve a view by title, with why. Both sites in
-# `_views.js.j2` address a view the run has just enumerated and knows exists,
-# so neither can produce the console noise the rule exists to prevent.
+# The only permitted shape, matched exactly rather than counted. A count
+# would accept deleting one of these and adding an unsafe site in its place.
+#
+# Both address a view that exists at the moment they are used: `slugUrl`
+# after `createViewWithCleanUrl` has created it under that slug, `viewUrl`
+# after the rename to that title. `listViewShapes` is what answers the
+# existence question, which is the rule.
 _GETBYTITLE_ALLOWED = {
-    "deploy/_views.js.j2": 2,
+    "deploy/_views.js.j2": {
+        "const viewUrl = apiUrl(`${listPath}/views/getbytitle('${odataName(view.title)}')`);",
+        "const slugUrl = apiUrl(`${listPath}/views/getbytitle('${odataName(view.url_slug)}')`);",
+    },
 }
 
 
@@ -87,19 +94,23 @@ def test_a_view_is_not_resolved_by_title_where_it_may_be_absent(template: Path) 
     to paste back. `_views.js.j2` says so at the top of the file and reads one
     enumeration per list instead.
 
-    A ratchet rather than a ban, because resolving a view that the run has
-    already enumerated is legitimate. Adding a site needs a reason.
+    A ratchet rather than a ban, because addressing a view the run has just
+    created or renamed is legitimate. The permitted lines are matched
+    verbatim: counting them would accept deleting one and adding an unsafe
+    site in its place, which is the mutation this most needs to survive.
     """
-    found = [
-        number for number, line in _code_lines(template)
-        if "views/getbytitle" in line
+    allowed = _GETBYTITLE_ALLOWED.get(_rel(template), set())
+    unexpected = [
+        f"{number}: {line.strip()}"
+        for number, line in _code_lines(template)
+        if "views/getbytitle" in line and line.strip() not in allowed
     ]
-    allowed = _GETBYTITLE_ALLOWED.get(_rel(template), 0)
-    assert len(found) <= allowed, (
-        f"{_rel(template)} resolves a view by title at line(s) {found}, more "
-        f"than the {allowed} recorded for it. Read one enumeration per list "
-        f"instead: an absent view answers HTTP 400 and the console shows it "
-        f"as an error the operator did not cause."
+    assert not unexpected, (
+        f"{_rel(template)} resolves a view by title in a form this file does "
+        f"not record: {unexpected}. An absent view answers HTTP 400 and the "
+        f"console shows it as an error the operator did not cause, so read "
+        f"one enumeration per list instead. If the site is safe, say why in "
+        f"the pull request and add the line to _GETBYTITLE_ALLOWED."
     )
 
 
