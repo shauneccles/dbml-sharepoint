@@ -3089,3 +3089,61 @@ def test_no_reader_no_enrolment_code() -> None:
     # And the same mapping, WITH a reader, does emit it. Otherwise the two
     # assertions above would also hold for a template that never works.
     assert "ensureuser" in _reader_deploy_js()
+
+
+def test_the_deploy_confirms_the_editor_still_refuses_the_guard() -> None:
+    """The emitted script must ask the tenant, once, rather than assume.
+
+    Measured 2026-08-17 (view-edit-page-probe.js): a view is protected when
+    its edit page returns 200 from the endpoint asked for, carries a
+    sentinel, and does not carry the editor's control names. The guard is
+    identical across views and each view's stored ViewQuery is already
+    verified, so one page answers for all of them.
+    """
+    script = _deploy_js()
+    assert "ViewEdit.aspx" in script
+    assert "FieldPicker1" in script
+    # A sentinel gates the absence check. C6 measured a request for a view
+    # that does not exist answering 200 with no editor controls, so absence
+    # alone would call a page that is not a view protected. Pinned as the
+    # declaration rather than as a substring: `ctl00` and `ViewEdit` are on
+    # that page too and are named in the comment beside it, so a bare
+    # containment test would pass on either of them.
+    assert "const EDITOR_PAGE_SENTINEL = 'ViewFilter';" in script
+    # English display text must not be the predicate: it reads correctly on
+    # an English tenant and silently wrong on any other.
+    assert "complex filter" not in script
+
+
+def test_an_unreadable_settings_page_warns_and_a_readable_one_can_fail() -> None:
+    """Unverifiable and unprotected must not collapse into one outcome.
+
+    A redirect, a missing sentinel or a throw means the check could not
+    answer, which is not evidence and must not abort a deploy whose views
+    are otherwise verified. The editor's control being PRESENT is a
+    determination that the protection did not take, so that one fails.
+    """
+    script = _deploy_js()
+    start = script.index("async function confirmEditorRefusesTheGuard")
+    block = script[start:script.index("await confirmEditorRefusesTheGuard();")]
+
+    # The failure is reachable ONLY under the control-present test, and the
+    # push is a statement rather than a guarded expression: `void 0 && push`
+    # would satisfy a containment test while never running.
+    condition = block.index("if (body.includes(EDITOR_CONTROL))")
+    pushes = [
+        line.strip() for line in block.splitlines() if "summary.errors.push" in line
+    ]
+    assert pushes == ["summary.errors.push({"]
+    assert block.index("summary.errors.push") > condition
+    assert block.index("log('ERROR'") > condition
+
+    # Every path that could not answer returns without recording a failure.
+    # A check that cannot see the page is not evidence the page is wrong.
+    warns = [i for i, line in enumerate(block.splitlines()) if "log('WARN'" in line]
+    assert len(warns) == 3
+    lines = block.splitlines()
+    for index in warns:
+        following = "\n".join(lines[index:index + 6])
+        assert "return;" in following
+        assert "summary.errors.push" not in following

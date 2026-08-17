@@ -384,3 +384,91 @@
   // writes to the same list race into save conflicts; different lists are
   // independent, so their lanes run concurrently.
   await mapLanes(SCHEMA.views, (view) => view.list, deployView, 4);
+
+  // ---- Did the guard actually take? -------------------------------------
+  // Every filtered view is emitted in a shape the filter editor refuses to
+  // open, because an editor that opens a filter writes back only the ten
+  // conditions it rendered (#267). The readback above already proves the
+  // stored ViewQuery is the declared one, per view. What it cannot see is
+  // whether THIS tenant's editor still refuses that shape, which is a
+  // property of SharePoint's UI on the day of the deploy.
+  //
+  // One fetch, not one per view: the guard is identical across views and
+  // each view's stored query is already verified, so one page answers for
+  // all of them. The page measured 501,773 characters on 2026-08-17, so
+  // per-view would add roughly 96MB to a 192-view bundle.
+  //
+  // Measured 2026-08-17 by test/manual/view-edit-page-probe.js. C1 and C2:
+  // the editor's own control names are on an editable page and on an
+  // unfiltered one, and absent from a refused one. Control NAMES rather than
+  // the English refusal message, which would misreport a non-English tenant.
+  const EDITOR_CONTROL = 'FieldPicker1';
+  // C6: a request for a view that does not exist answers HTTP 200 on this
+  // URL with no editor controls, so absence alone would call a page that is
+  // not a view "protected". `ctl00` and `ViewEdit` are on that page too and
+  // are useless here; only this one tracks the filter section.
+  const EDITOR_PAGE_SENTINEL = 'ViewFilter';
+
+  async function confirmEditorRefusesTheGuard() {
+    const guarded = SCHEMA.views.find((v) => (v.caml_query || '').includes('<Where>'));
+    if (!guarded) {
+      log('INFO', `[Phase {{ phase.number }}] No filtered view declared, so nothing to confirm.`);
+      return;
+    }
+    const listPath = `web/lists/getbytitle('${odataName(guarded.list)}')`;
+    let listId = null;
+    let viewId = null;
+    try {
+      const listResp = await fetchWithRetry(apiUrl(`${listPath}?$select=Id`), {
+        headers: { 'Accept': 'application/json;odata=verbose' },
+      });
+      if (listResp.ok) listId = ((await listResp.json()) || {}).d.Id;
+      const shapes = await listViewShapes(listPath);
+      const shape = shapes.find((s) => s.Title === guarded.title);
+      viewId = shape ? shape.Id : null;
+    } catch (err) {
+      listId = null;
+    }
+    if (!listId || !viewId) {
+      log('WARN', `[Phase {{ phase.number }}] Could not identify '${guarded.title}' to confirm the`
+        + ' filter editor refuses it. The view itself is verified; the protection is not.');
+      return;
+    }
+
+    const pageUrl = `${WEB}/_layouts/15/ViewEdit.aspx?List=${encodeURIComponent(`{${listId}}`)}`
+      + `&View=${encodeURIComponent(`{${viewId}}`)}`;
+    let res;
+    let body;
+    try {
+      res = await fetch(pageUrl, { credentials: 'same-origin' });
+      body = await res.text();
+    } catch (err) {
+      log('WARN', `[Phase {{ phase.number }}] Could not read the view settings page (${err.message}).`
+        + ' The view is verified; whether the editor refuses it is unconfirmed.');
+      return;
+    }
+    // A login or modern-settings redirect answers 200, so res.ok alone would
+    // hand the wrong HTML to the test below.
+    const landed = res.ok && !res.redirected && res.url.includes('ViewEdit.aspx');
+    if (!landed || !body.includes(EDITOR_PAGE_SENTINEL)) {
+      log('WARN', `[Phase {{ phase.number }}] View settings page did not arrive as asked`
+        + ` (HTTP ${res.status}, redirected=${res.redirected}, sentinel=${body.includes(EDITOR_PAGE_SENTINEL)}).`
+        + ' The view is verified; whether the editor refuses it is unconfirmed.');
+      return;
+    }
+    if (body.includes(EDITOR_CONTROL)) {
+      // The page arrived and the editor is on it, so the filter is editable
+      // and an operator can truncate it. That is a determination, not an
+      // absence of one, so it fails the run rather than warning.
+      const message = `view '${guarded.title}' on '${guarded.list}' is still editable in the filter`
+        + ' editor, so its filter can be truncated by an operator pressing Save';
+      log('ERROR', `[Phase {{ phase.number }}] ${message}`);
+      summary.errors.push({
+        phase: '{{ phase.number }}', list: guarded.list, view: guarded.title, error: message,
+      });
+      return;
+    }
+    log('INFO', `[Phase {{ phase.number }}] Filter editor refuses '${guarded.title}', so declared`
+      + ' filters cannot be truncated from view settings.');
+  }
+  await confirmEditorRefusesTheGuard();
