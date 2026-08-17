@@ -10,6 +10,7 @@ from _paths import MANUAL
 from dbml_sharepoint.analysis import conditions
 from dbml_sharepoint.analysis.conditions import (
     CAML,
+    CAML_VIEW_FILTER_GUARD,
     CAPABILITIES,
     EXPRESSION,
     MAX_DEPTH,
@@ -23,6 +24,7 @@ from dbml_sharepoint.analysis.conditions import (
     measure_tree,
     normalise,
     to_caml,
+    to_caml_protected,
     to_expression,
     to_validation,
     validate_condition,
@@ -2193,3 +2195,58 @@ def test_membership_describes_itself_in_the_manifest() -> None:
     word the mapping used rather than the `<Eq>` it becomes -- which on this
     column would read as equality and mean something else."""
     assert describe(Leaf("Events", "includes", "View")) == "Events includes 'View'"
+
+
+def test_a_view_filter_is_wrapped_so_the_editor_refuses_it() -> None:
+    """The emitted <Where> body must end with a group in the RIGHT child.
+
+    Measured 2026-08-17 (caml-chain-depth-probe.js W2, W4, T2): the filter
+    editor refuses a filter whose right child is a non-leaf, and a view it
+    will not open is one an operator cannot truncate by pressing Save.
+    """
+    condition = parse_condition([{"field": "Status", "op": "eq", "value": "Open"}], "ctx")
+    assert to_caml_protected(condition, {"Status": "Text"}) == (
+        "<And>"
+        '<Eq><FieldRef Name="Status"/><Value Type="Text">Open</Value></Eq>'
+        f"{CAML_VIEW_FILTER_GUARD}"
+        "</And>"
+    )
+
+
+def test_the_guard_is_the_last_child_whatever_the_filter_already_was() -> None:
+    """A filter that already contains a group still gets the guard last.
+
+    26 shipped views are protected today only by which clause rendered last,
+    which nothing holds in place.
+    """
+    condition = parse_condition(
+        [
+            {"field": "Status", "op": "in", "value": ["Open", "Closed"]},
+            {"field": "Owner", "op": "eq", "value": "me"},
+        ],
+        "ctx",
+    )
+    rendered = to_caml_protected(condition, {"Status": "Text", "Owner": "Text"})
+    assert rendered.startswith("<And>")
+    assert rendered.endswith(f"{CAML_VIEW_FILTER_GUARD}</And>")
+
+
+def test_the_protected_renderer_agrees_with_to_caml_on_the_inner_filter() -> None:
+    """The guard is additive. It must not alter what the author declared."""
+    condition = parse_condition([{"field": "Status", "op": "eq", "value": "Open"}], "ctx")
+    types = {"Status": "Text"}
+    assert to_caml_protected(condition, types) == (
+        f"<And>{to_caml(condition, types)}{CAML_VIEW_FILTER_GUARD}</And>"
+    )
+
+
+def test_to_caml_is_unchanged_for_its_other_callers() -> None:
+    """The excluded-values fragment and the grammar oracle must see no guard.
+
+    `to_caml` renders a sub-expression inline in `_leaf` and is the oracle the
+    grammar uses to decide what it can express, so a guard there would nest a
+    view-level construct inside a fragment. Index analysis is not among its
+    callers: it works on the tree, via `_index_covered(normalise(...))`.
+    """
+    condition = parse_condition([{"field": "Status", "op": "eq", "value": "Open"}], "ctx")
+    assert "IsNotNull" not in to_caml(condition, {"Status": "Text"})

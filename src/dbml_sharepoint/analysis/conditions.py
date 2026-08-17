@@ -231,6 +231,18 @@ CAML = "caml"
 EXPRESSION = "expression"
 VALIDATION = "validation"
 
+# Conjoined onto a VIEW's filter so the classic filter editor refuses to open
+# it, because an editor that opens it writes back only the ten conditions it
+# rendered. Measured 2026-08-17: caml-chain-depth-probe.js W2, W4, T2.
+# That the two halves match every row is ASSUMED and unverified; probe rows T3
+# and S2 ask it and neither has run. See #267.
+CAML_VIEW_FILTER_GUARD = (
+    "<Or>"
+    '<IsNotNull><FieldRef Name="ID"/></IsNotNull>'
+    '<IsNull><FieldRef Name="ID"/></IsNull>'
+    "</Or>"
+)
+
 _CAML_OP_TAGS: dict[str, str] = {
     "eq": "Eq", "neq": "Neq", "lt": "Lt", "leq": "Leq", "gt": "Gt", "geq": "Geq",
     "is_null": "IsNull", "is_not_null": "IsNotNull",
@@ -1056,6 +1068,20 @@ def _boolean(value: object, at: Location, target: str) -> bool:
 def to_caml(condition: Condition, column_types: dict[str, str]) -> str:
     """Render to a CAML `<Where>` body."""
     return _render(normalise(condition), column_types, CAML, _CONDITIONS_ROOT)
+
+
+def to_caml_protected(condition: Condition, column_types: dict[str, str]) -> str:
+    """Render a VIEW's `<Where>` body in the shape the filter editor refuses.
+
+    Views only. `to_caml` stays unguarded because its other use is a
+    sub-expression rendered inline in `_leaf`, where a view-level conjunct
+    would change what the grammar reports.
+
+    The editor refuses a filter whose right child is a group, and a view it
+    cannot open it cannot truncate (measured 2026-08-17,
+    caml-chain-depth-probe.js W2, W4, T2).
+    """
+    return f"<And>{to_caml(condition, column_types)}{CAML_VIEW_FILTER_GUARD}</And>"
 
 
 def to_expression(condition: Condition, column_types: dict[str, str]) -> str:

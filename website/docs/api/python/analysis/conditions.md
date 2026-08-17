@@ -97,6 +97,12 @@ EXPRESSION = 'expression'
 VALIDATION = 'validation'
 ```
 
+### `CAML_VIEW_FILTER_GUARD`
+
+```python
+CAML_VIEW_FILTER_GUARD = '<Or><IsNotNull><FieldRef Name="ID"/></IsNotNull><IsNull><FieldRef Name="ID"/></IsNull></Or>'
+```
+
 ### `CAPABILITIES`
 
 ```python
@@ -116,6 +122,22 @@ def to_caml(condition: Condition, column_types: dict[str, str]) -> str
 ```
 
 Render to a CAML `<Where>` body.
+
+### `to_caml_protected`
+
+```python
+def to_caml_protected(condition: Condition, column_types: dict[str, str]) -> str
+```
+
+Render a VIEW's `<Where>` body in the shape the filter editor refuses.
+
+Views only. `to_caml` stays unguarded because its other use is a
+sub-expression rendered inline in `_leaf`, where a view-level conjunct
+would change what the grammar reports.
+
+The editor refuses a filter whose right child is a group, and a view it
+cannot open it cannot truncate (measured 2026-08-17,
+caml-chain-depth-probe.js W2, W4, T2).
 
 ### `to_expression`
 
