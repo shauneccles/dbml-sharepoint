@@ -1801,106 +1801,6 @@
     "<Where><IsNull><FieldRef Name='ClosedAt'/></IsNull></Where>", matched);
 
 
-  // ---- Does the #272 guard change what is SERVED past the threshold? ---
-  // Deliberately OUTSIDE the checkpoint gate above, because this question
-  // does not need a declared row count. It needs the list to be past the
-  // threshold, and it compares the guarded query against the UNGUARDED one
-  // measured in the same run, on the same list, seconds apart.
-  //
-  // That is what makes it readable on a fixture that has drifted. The run of
-  // 2026-08-17 found 5,614 rows where 6,000 were loaded, and an absolute
-  // expected count would have been unreadable; a comparison is not, because
-  // both halves see whatever the list now holds. Every other row here asks
-  // "how many", so they keep the stricter gate.
-  const guardBlocked =
-    count < 0 ? 'ItemCount could not be read'
-    : count <= LIST_VIEW_THRESHOLD
-      ? `ItemCount ${count} is not past the ${LIST_VIEW_THRESHOLD} threshold, `
-        + 'so nothing here is throttled and the comparison says nothing'
-    : '';
-
-  // One line, unbroken, so a test can compare it to the emitted constant.
-  const GUARD = '<Or><IsNotNull><FieldRef Name="ID"/></IsNotNull><IsNull><FieldRef Name="ID"/></IsNull></Or>';
-  const guarded = (where) => `<Where><And>${where}${GUARD}</And></Where>`;
-  const IDX_LEAF = `<Eq><FieldRef Name='Bucket'/><Value Type='Text'>${RARE_BUCKET}</Value></Eq>`;
-  const UNI_LEAF = `<Eq><FieldRef Name='Shadow'/><Value Type='Text'>${RARE_BUCKET}</Value></Eq>`;
-  const NUL_LEAF = "<IsNull><FieldRef Name='ClosedAt'/></IsNull>";
-
-  // Rows and status, judged by nothing. The caller compares.
-  const rawCaml = async (where) => {
-    const digest = await getDigest();
-    const viewXml = `<View><Query>${where}</Query><RowLimit>${PAGE}</RowLimit></View>`;
-    const r = await spPost(
-      `web/lists/getbytitle('${odata(LIST)}')/RenderListDataAsStream`,
-      { parameters: { ViewXml: viewXml } }, digest);
-    const rows = (r.ok && r.body && Array.isArray(r.body.Row)) ? r.body.Row.length : null;
-    return { ok: r.ok, status: r.status, rows, text: (r.text || '').slice(0, 200) };
-  };
-
-  const guardPair = async (id, question, leaf, expectServed) => {
-    if (guardBlocked) {
-      record(id, question, 'NOT ESTABLISHED', `[${stamp}] not measured: ${guardBlocked}.`);
-      return;
-    }
-    const bare = await rawCaml(`<Where>${leaf}</Where>`);
-    const wrapped = await rawCaml(guarded(leaf));
-    const same = bare.ok === wrapped.ok && bare.rows === wrapped.rows;
-    // The unguarded half is the reference, so a run where IT disagrees with
-    // what this row expects says nothing about the guard.
-    if (bare.ok !== expectServed) {
-      record(id, question, 'NOT ESTABLISHED',
-        `[${stamp}] the UNGUARDED twin was ${bare.ok ? 'served' : 'refused'} `
-        + `(HTTP ${bare.status}) where this row expects it to be `
-        + `${expectServed ? 'served' : 'refused'}, so there is no reference to `
-        + `compare the guarded form against. ${bare.text}`);
-      return;
-    }
-    record(id, question,
-      same ? (bare.ok ? 'UNCHANGED (both served)' : 'UNCHANGED (both refused)')
-           : 'CHANGED',
-      `[${stamp}] unguarded: HTTP ${bare.status}, ${bare.rows} row(s). guarded: `
-      + `HTTP ${wrapped.status}, ${wrapped.rows} row(s). `
-      + (same
-        ? 'The conjunct changed neither the outcome nor the row count on a list '
-          + `of ${count}, past the ${LIST_VIEW_THRESHOLD} threshold.`
-        : 'THE CONJUNCT CHANGED WHAT SHAREPOINT SERVED. #272 emits it on every '
-          + 'view, so a filter that worked at this size stops working, on the '
-          + `largest lists, and no build can see it. ${wrapped.text}`));
-  };
-
-  // The two measurements. Both twins are on INDEXED columns and are expected
-  // to be served, so a change here is the guard's doing.
-  await guardPair('GRDIDX', 'CAML comparison, INDEXED Text, GUARDED as #272 emits it',
-                  IDX_LEAF, true);
-  await guardPair('GRDNUL', 'CAML IsNull, INDEXED DateTime, GUARDED as #272 emits it',
-                  NUL_LEAF, true);
-  // The control: the UNINDEXED twin, which must be refused at this size. If
-  // guarding it makes it served, the conjunct changed plan selection and
-  // GRDIDX being green says nothing about the index. Requires IDXCLR to have
-  // restored the control, and IDXSET says whether it did.
-  await guardPair('GRDUNI', 'CAML comparison, UNINDEXED twin, GUARDED (control)',
-                  UNI_LEAF, false);
-
-  // The guard alone, matching every row in the list, so it must be refused
-  // for the same reason any unfiltered query is. Served would mean SharePoint
-  // treats it as satisfiable without scanning, which would make it a filter
-  // rather than the inert conjunct every other row assumes.
-  if (guardBlocked) {
-    record('GRDONLY', 'CAML the guard ALONE, matching every row (control)',
-           'NOT ESTABLISHED', `[${stamp}] not measured: ${guardBlocked}.`);
-  } else {
-    const alone = await rawCaml(`<Where>${GUARD}</Where>`);
-    record('GRDONLY', 'CAML the guard ALONE, matching every row (control)',
-           alone.ok ? 'SERVED' : 'REFUSED',
-           `[${stamp}] HTTP ${alone.status}, ${alone.rows} row(s) of ${count}. `
-           + (alone.ok
-             ? 'SERVED is the surprise: the guard matches every row, so a query '
-               + 'with nothing else in it should breach the threshold. Read '
-               + 'GRDIDX with that in mind. ' + alone.text
-             : 'Refused, as an unfiltered query at this size should be, so the '
-               + 'guard is not being treated as a selective filter.'));
-  }
-
   // ---- How many JOINS may one view project? (issue #44) ----------------
   // A different ceiling from everything else here, and a nastier one: the list
   // view LOOKUP threshold is a property of the view's SHAPE, so it bites on a
@@ -2289,7 +2189,115 @@
   }
   };
 
+  // Outside `measureFilters`, and called unconditionally, because this is
+  // the one question here that does not need a declared row count. Run of
+  // 2026-08-17: it sat inside and reported four rows unreached on a fixture
+  // holding 5,614 of the 6,000 loaded, which is exactly the case it was
+  // rewritten to answer.
+  const measureGuard = async () => {
+    // ---- Does the #272 guard change what is SERVED past the threshold? ---
+    // Deliberately OUTSIDE the checkpoint gate above, because this question
+    // does not need a declared row count. It needs the list to be past the
+    // threshold, and it compares the guarded query against the UNGUARDED one
+    // measured in the same run, on the same list, seconds apart.
+    //
+    // That is what makes it readable on a fixture that has drifted. The run of
+    // 2026-08-17 found 5,614 rows where 6,000 were loaded, and an absolute
+    // expected count would have been unreadable; a comparison is not, because
+    // both halves see whatever the list now holds. Every other row here asks
+    // "how many", so they keep the stricter gate.
+    const guardBlocked =
+      count < 0 ? 'ItemCount could not be read'
+      : count <= LIST_VIEW_THRESHOLD
+        ? `ItemCount ${count} is not past the ${LIST_VIEW_THRESHOLD} threshold, `
+          + 'so nothing here is throttled and the comparison says nothing'
+      : '';
+
+    // One line, unbroken, so a test can compare it to the emitted constant.
+    const GUARD = '<Or><IsNotNull><FieldRef Name="ID"/></IsNotNull><IsNull><FieldRef Name="ID"/></IsNull></Or>';
+    const guarded = (where) => `<Where><And>${where}${GUARD}</And></Where>`;
+    const IDX_LEAF = `<Eq><FieldRef Name='Bucket'/><Value Type='Text'>${RARE_BUCKET}</Value></Eq>`;
+    const UNI_LEAF = `<Eq><FieldRef Name='Shadow'/><Value Type='Text'>${RARE_BUCKET}</Value></Eq>`;
+    const NUL_LEAF = "<IsNull><FieldRef Name='ClosedAt'/></IsNull>";
+
+    // Rows and status, judged by nothing. The caller compares.
+    const rawCaml = async (where) => {
+      const digest = await getDigest();
+      const viewXml = `<View><Query>${where}</Query><RowLimit>${PAGE}</RowLimit></View>`;
+      const r = await spPost(
+        `web/lists/getbytitle('${odata(LIST)}')/RenderListDataAsStream`,
+        { parameters: { ViewXml: viewXml } }, digest);
+      const rows = (r.ok && r.body && Array.isArray(r.body.Row)) ? r.body.Row.length : null;
+      return { ok: r.ok, status: r.status, rows, text: (r.text || '').slice(0, 200) };
+    };
+
+    const guardPair = async (id, question, leaf, expectServed) => {
+      if (guardBlocked) {
+        record(id, question, 'NOT ESTABLISHED', `[${stamp}] not measured: ${guardBlocked}.`);
+        return;
+      }
+      const bare = await rawCaml(`<Where>${leaf}</Where>`);
+      const wrapped = await rawCaml(guarded(leaf));
+      const same = bare.ok === wrapped.ok && bare.rows === wrapped.rows;
+      // The unguarded half is the reference, so a run where IT disagrees with
+      // what this row expects says nothing about the guard.
+      if (bare.ok !== expectServed) {
+        record(id, question, 'NOT ESTABLISHED',
+          `[${stamp}] the UNGUARDED twin was ${bare.ok ? 'served' : 'refused'} `
+          + `(HTTP ${bare.status}) where this row expects it to be `
+          + `${expectServed ? 'served' : 'refused'}, so there is no reference to `
+          + `compare the guarded form against. ${bare.text}`);
+        return;
+      }
+      record(id, question,
+        same ? (bare.ok ? 'UNCHANGED (both served)' : 'UNCHANGED (both refused)')
+             : 'CHANGED',
+        `[${stamp}] unguarded: HTTP ${bare.status}, ${bare.rows} row(s). guarded: `
+        + `HTTP ${wrapped.status}, ${wrapped.rows} row(s). `
+        + (same
+          ? 'The conjunct changed neither the outcome nor the row count on a list '
+            + `of ${count}, past the ${LIST_VIEW_THRESHOLD} threshold.`
+          : 'THE CONJUNCT CHANGED WHAT SHAREPOINT SERVED. #272 emits it on every '
+            + 'view, so a filter that worked at this size stops working, on the '
+            + `largest lists, and no build can see it. ${wrapped.text}`));
+    };
+
+    // The two measurements. Both twins are on INDEXED columns and are expected
+    // to be served, so a change here is the guard's doing.
+    await guardPair('GRDIDX', 'CAML comparison, INDEXED Text, GUARDED as #272 emits it',
+                    IDX_LEAF, true);
+    await guardPair('GRDNUL', 'CAML IsNull, INDEXED DateTime, GUARDED as #272 emits it',
+                    NUL_LEAF, true);
+    // The control: the UNINDEXED twin, which must be refused at this size. If
+    // guarding it makes it served, the conjunct changed plan selection and
+    // GRDIDX being green says nothing about the index. Requires IDXCLR to have
+    // restored the control, and IDXSET says whether it did.
+    await guardPair('GRDUNI', 'CAML comparison, UNINDEXED twin, GUARDED (control)',
+                    UNI_LEAF, false);
+
+    // The guard alone, matching every row in the list, so it must be refused
+    // for the same reason any unfiltered query is. Served would mean SharePoint
+    // treats it as satisfiable without scanning, which would make it a filter
+    // rather than the inert conjunct every other row assumes.
+    if (guardBlocked) {
+      record('GRDONLY', 'CAML the guard ALONE, matching every row (control)',
+             'NOT ESTABLISHED', `[${stamp}] not measured: ${guardBlocked}.`);
+    } else {
+      const alone = await rawCaml(`<Where>${GUARD}</Where>`);
+      record('GRDONLY', 'CAML the guard ALONE, matching every row (control)',
+             alone.ok ? 'SERVED' : 'REFUSED',
+             `[${stamp}] HTTP ${alone.status}, ${alone.rows} row(s) of ${count}. `
+             + (alone.ok
+               ? 'SERVED is the surprise: the guard matches every row, so a query '
+                 + 'with nothing else in it should breach the threshold. Read '
+                 + 'GRDIDX with that in mind. ' + alone.text
+               : 'Refused, as an unfiltered query at this size should be, so the '
+                 + 'guard is not being treated as a selective filter.'));
+    }
+  };
+
   if (!blocked) await measureFilters();
+  await measureGuard();
 
   report();
   // report() counts only literal NOT ESTABLISHED outcomes, so a table that is
