@@ -8,7 +8,7 @@ nothing could check and that had already lost Calculated and MultiChoice.
 """
 
 import re
-from collections.abc import Iterable
+from collections.abc import Collection, Iterable
 from dataclasses import dataclass
 from difflib import get_close_matches
 from typing import Any, Literal
@@ -182,6 +182,25 @@ def element_type(col_type: str) -> str:
     two arms come to disagree.
     """
     return col_type.removesuffix(MULTI_VALUE_SUFFIX)
+
+
+def choice_enum_for(col_type: str, enum_names: Collection[str]) -> str | None:
+    """The enum backing a Choice or MultiChoice column, whatever its arity.
+
+    THE NAME DERIVATION, ASKED ONCE. Three call sites tested `col.type in
+    enum_names` against a dict or set keyed by the bare enum name, so
+    `audit_event[]` missed all three while each rule read as though it covered
+    the column -- the failure `unsupported_index_reason` already records.
+
+    No arity branch, because `element_type` returns a scalar unchanged and its
+    docstring says a branch is where the two arms come to disagree.
+
+    NOT for the arity-sensitive guards. `supports_unique` and the multi-value
+    default refusal answer differently for the two arities by design, and are
+    deliberately not routed here.
+    """
+    bare = element_type(col_type)
+    return bare if bare in enum_names else None
 
 # THE type-identity questions, asked as questions rather than spelled out.
 #
@@ -395,15 +414,19 @@ def _resolve_column(col: Column, enum_names: set[str]) -> SPField:
             output_type=CALCULATED_OUTPUT_TYPES[col.type],
         )
 
-    if col.type in enum_names:
+    # The NAME is derived once, for both arities. The arms below still branch
+    # on arity because they differ in `kind` and `field_type_kind`.
+    choices_enum = choice_enum_for(col.type, enum_names)
+
+    if choices_enum is not None and not is_multi_value(col.type):
         return SPField(
             name=col.name, kind="Choice",
             field_type_kind=FIELD_TYPE_KIND_BY_KIND["Choice"],
             required=col.required, unique=col.unique, default=col.default,
-            description=description, choices_enum=col.type,
+            description=description, choices_enum=choices_enum,
         )
 
-    if is_multi_value(col.type) and element_type(col.type) in enum_names:
+    if choices_enum is not None:
         # `SP.FieldChoice` DERIVES from
         # `SP.FieldMultiChoice` -- `Choices` is a FieldMultiChoice property,
         # which is why the deployer's existing Choice machinery already
@@ -424,7 +447,7 @@ def _resolve_column(col: Column, enum_names: set[str]) -> SPField:
             name=col.name, kind="MultiChoice",
             field_type_kind=FIELD_TYPE_KIND_BY_KIND["MultiChoice"],
             required=col.required, unique=col.unique, default=col.default,
-            description=description, choices_enum=element_type(col.type),
+            description=description, choices_enum=choices_enum,
         )
 
     if col.ref is not None:

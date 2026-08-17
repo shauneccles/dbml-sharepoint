@@ -107,6 +107,26 @@ A scalar is its own element type, so a caller can resolve a name without
 branching on arity first -- which is the point: a branch is a place the
 two arms come to disagree.
 
+### `choice_enum_for`
+
+```python
+def choice_enum_for(col_type: str, enum_names: collections.abc.Collection[str]) -> str | None
+```
+
+The enum backing a Choice or MultiChoice column, whatever its arity.
+
+THE NAME DERIVATION, ASKED ONCE. Three call sites tested `col.type in
+enum_names` against a dict or set keyed by the bare enum name, so
+`audit_event[]` missed all three while each rule read as though it covered
+the column -- the failure `unsupported_index_reason` already records.
+
+No arity branch, because `element_type` returns a scalar unchanged and its
+docstring says a branch is where the two arms come to disagree.
+
+NOT for the arity-sensitive guards. `supports_unique` and the multi-value
+default refusal answer differently for the two arities by design, and are
+deliberately not routed here.
+
 ### `is_boolean`
 
 ```python

@@ -16,12 +16,14 @@ from dbml_sharepoint.analysis.typemap import (
     FIELD_KIND_BY_TYPE_KIND,
     FIELD_TYPE_KIND_BY_KIND,
     FieldKind,
+    choice_enum_for,
     describe_unknown_type,
     is_boolean,
     is_hyperlink,
     is_legacy_choice,
     is_person,
     map_column,
+    supports_unique,
 )
 from dbml_sharepoint.generators.jsgen import generate_deploy_js
 from dbml_sharepoint.model.mapping_loader import load_mapping
@@ -249,6 +251,39 @@ def test_the_mapper_itself_goes_through_the_predicates(
 def test_the_mapper_refuses_legacy_choice_through_the_predicate() -> None:
     with pytest.raises(ValueError, match="legacy 'choice' type"):
         map_column(Column(name="Status", type="choice"), ENUM_NAMES)
+
+
+# --- The arity-aware enum resolver -------------------------------------------
+
+
+def test_a_scalar_choice_column_resolves_its_enum() -> None:
+    assert choice_enum_for("audit_event", {"audit_event"}) == "audit_event"
+
+
+def test_a_multi_value_column_resolves_the_same_enum() -> None:
+    """The arity suffix is not part of the enum's name.
+
+    Three call sites keyed a dict on the raw column type, so `audit_event[]`
+    missed every one of them and the rules read as though they covered the
+    column. `unsupported_index_reason` already documents that failure.
+    """
+    assert choice_enum_for("audit_event[]", {"audit_event"}) == "audit_event"
+
+
+def test_a_type_that_is_not_an_enum_resolves_to_nothing() -> None:
+    assert choice_enum_for("nvarchar", {"audit_event"}) is None
+    assert choice_enum_for("nvarchar[]", {"audit_event"}) is None
+
+
+def test_a_multi_value_column_is_never_uniqueness_capable() -> None:
+    """`supports_unique` must not be routed through the resolver.
+
+    Measured on 2026-08-10: setting EnforceUniqueValues on a MultiChoice field
+    returned HTTP 500, so resolving the enum name here would declare the
+    column capable of a constraint SharePoint refuses.
+    """
+    assert supports_unique(Column(name="Events", type="status"), ENUM_NAMES) is True
+    assert supports_unique(Column(name="Events", type="status[]"), ENUM_NAMES) is False
 
 
 # --- The single-authority pin ------------------------------------------------
