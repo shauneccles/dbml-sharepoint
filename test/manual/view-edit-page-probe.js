@@ -406,10 +406,23 @@
     // 0 NOT established" with unresolved rows visible one screen above it,
     // which is the summary lying by omission: the exact failure expect() was
     // added to prevent, reintroduced at the other end of the same function.
-    const open = RESULTS.filter(
-      (r) => r.outcome.startsWith('NOT ESTABLISHED') || r.outcome.startsWith('SHORT'),
+    //
+    // MANUAL and NOT REACHED are counted open for the same reason. A MANUAL
+    // row has SET UP an observation and is waiting for a person to make it,
+    // so counting it answered lets a run print "0 not established" while
+    // every browser check it asked for is still undone. That became visible
+    // when the summary moved to the end of the run: before, those rows were
+    // recorded after it and reported as NOT ESTABLISHED by accident.
+    const OPEN_PREFIXES = ['NOT ESTABLISHED', 'SHORT', 'MANUAL', 'NOT REACHED'];
+    const isOpen = (r) => OPEN_PREFIXES.some((p) => r.outcome.startsWith(p));
+    const open = RESULTS.filter(isOpen).length;
+    const waiting = RESULTS.filter(
+      (r) => r.outcome.startsWith('MANUAL') || r.outcome.startsWith('NOT REACHED'),
     ).length;
-    console.log(`${RESULTS.length} question(s); ${RESULTS.length - open} answered, ${open} NOT established.`);
+    console.log(`${RESULTS.length} question(s); ${RESULTS.length - open} answered, ${open} open.`);
+    if (waiting) {
+      console.log(`${waiting} of those are waiting on an observation somebody has to make.`);
+    }
     if (open) {
       console.log('A question with no observation is NOT a pass. Report it as open.');
     }
@@ -418,7 +431,7 @@
 
   // Printed before any gate: a stale clipboard and a fix that did not
   // work produce identical transcripts otherwise.
-  log('INFO', 'probe revision 512aeeb7. Quote this when reporting results.');
+  log('INFO', 'probe revision 8bd20c65. Quote this when reporting results.');
 
   // Set to the list named at the end of a previous run to drain and remove it.
   // The probe leaves its list behind so P1 and P2 can be looked at, and a

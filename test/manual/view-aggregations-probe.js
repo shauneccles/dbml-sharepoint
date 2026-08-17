@@ -123,7 +123,7 @@
 
   // Printed before any gate: a stale clipboard and a fix that did not
   // work produce identical transcripts otherwise.
-  log('INFO', 'probe revision 95d6a0fc. Quote this when reporting results.');
+  log('INFO', 'probe revision b1c969d3. Quote this when reporting results.');
   const results = [];
   const expect = (id, question) => {
     results.push({ id, question, observed: 'NOT ESTABLISHED', detail: 'the run did not reach this question' });

@@ -82,19 +82,32 @@
  * <Or> count is compared as well, because flattening and truncation both
  * change it and both can leave the rows looking right at shallow depth.
  *
- * STATUS: seven runs on 2026-08-17 answered every question this probe then
- * asked. TWO ROWS ADDED AFTER RUN 7 ARE OPEN, T3 and T4, and T3 is the one
- * that matters.
+ * STATUS: COMPLETE, over eight runs on 2026-08-17. Run 8 (revision 95b87a8e)
+ * answered T3 and T4, the two rows added after run 7.
  *
- * T1 CANNOT ESTABLISH WHAT IT WAS WRITTEN TO CLAIM. Conjoined behind
- * Eq(M01) the left side already restricts to R01, so a group that wrongly
- * excluded R07 or the empty row returns the same single row and T1 still
- * reads INERT. Its evidence said the empty row would catch that, and the
- * empty row cannot: the Eq excludes it either way. T3 asks the group ON ITS
- * OWN, where the partition is the row count, and that is the claim #267
- * rests on. T4 reads the stored ViewQuery back before an operator is sent to
- * look at T2, because a view found by title is not proof of the tree it
- * holds and rewriting on save is what this probe characterises.
+ * T3: PARTITIONS, 41 of 41 rows. Or[IsNotNull(ID), IsNull(ID)] asked on its
+ * own returned every seeded row including the empty one, so conjoining it
+ * cannot remove a row from any filter. That is the claim #267 rests on, and
+ * T1 was structurally unable to make it.
+ *
+ * T4: SURVIVED. The stored ViewQuery for Shape T2 matches what was sent, so
+ * T2's manual verdict is about the tree #267 emits.
+ *
+ * RUN 8 ALSO EXPOSED A DEFECT IN THIS FILE, and it had been misreporting
+ * since run 7. `report()` was called immediately after the depth rows,
+ * several hundred lines before E1 through U2 were recorded, and nothing
+ * printed the table again afterwards. So the summary said "21 NOT
+ * established" for rows the log above had already answered, T3 among them,
+ * and a reader trusting the summary would have concluded the run aborted.
+ * That is the failure `expect()` exists to prevent, reappearing at the other
+ * end of the same function. The call now sits after every row.
+ *
+ * T1 CANNOT ESTABLISH WHAT IT WAS WRITTEN TO CLAIM, which is why T3 exists.
+ * Conjoined behind Eq(M01) the left side already restricts to R01, so a group
+ * that wrongly excluded R07 or the empty row returns the same single row and
+ * T1 still reads INERT. Its evidence claimed the empty row would catch that,
+ * and the Eq excludes the empty row either way, so it could not. T3 asks the
+ * group on its own, where the partition is the row count.
  *
  * Run 3 answered the depth question: the machine surfaces evaluate a
  * 40-disjunct chain correctly and the filter editor does not.
@@ -435,10 +448,23 @@
     // 0 NOT established" with unresolved rows visible one screen above it,
     // which is the summary lying by omission: the exact failure expect() was
     // added to prevent, reintroduced at the other end of the same function.
-    const open = RESULTS.filter(
-      (r) => r.outcome.startsWith('NOT ESTABLISHED') || r.outcome.startsWith('SHORT'),
+    //
+    // MANUAL and NOT REACHED are counted open for the same reason. A MANUAL
+    // row has SET UP an observation and is waiting for a person to make it,
+    // so counting it answered lets a run print "0 not established" while
+    // every browser check it asked for is still undone. That became visible
+    // when the summary moved to the end of the run: before, those rows were
+    // recorded after it and reported as NOT ESTABLISHED by accident.
+    const OPEN_PREFIXES = ['NOT ESTABLISHED', 'SHORT', 'MANUAL', 'NOT REACHED'];
+    const isOpen = (r) => OPEN_PREFIXES.some((p) => r.outcome.startsWith(p));
+    const open = RESULTS.filter(isOpen).length;
+    const waiting = RESULTS.filter(
+      (r) => r.outcome.startsWith('MANUAL') || r.outcome.startsWith('NOT REACHED'),
     ).length;
-    console.log(`${RESULTS.length} question(s); ${RESULTS.length - open} answered, ${open} NOT established.`);
+    console.log(`${RESULTS.length} question(s); ${RESULTS.length - open} answered, ${open} open.`);
+    if (waiting) {
+      console.log(`${waiting} of those are waiting on an observation somebody has to make.`);
+    }
     if (open) {
       console.log('A question with no observation is NOT a pass. Report it as open.');
     }
@@ -446,7 +472,7 @@
   };
 
   // Identifies which version was pasted, since a stale clipboard and a failed fix read the same.
-  log('INFO', 'probe revision 95b87a8e. Quote this when reporting results.');
+  log('INFO', 'probe revision e0db57b1. Quote this when reporting results.');
 
   // Set to a PREVIOUS run's list name to drain and recycle it, then stop.
   // The harness's own CLEANUP cannot serve here: it matches by name, and this
@@ -630,6 +656,10 @@
     report();
   };
 
+  // Everything from here runs inside a try, so the result table prints even
+  // when a later row throws. Run 6 died on a ReferenceError several hundred
+  // lines in and the operator would otherwise have received no table at all.
+  try {
   // ---- Bootstrap ---------------------------------------------------------
   let digest = await getDigest();
   const made = await spPost('web/lists', {
@@ -1004,7 +1034,6 @@
   await negative('N2', DEPTHS[DEPTHS.length - 1],
     'NEGATIVE CONTROL: the deepest chain of padding only returns NOTHING');
 
-  report();
   log('INFO', `write shape=${writeShape}, CamlQuery payload shape=${queryShape}. Both were asked, not assumed.`);
   // === E1..E4: what makes a filter UNEDITABLE, and therefore SAFE =========
   // An operator reported that a view this tool already deploys (the risk
@@ -1404,4 +1433,11 @@
     log('INFO', 'At least one depth disagreed as well, so this run is worth opening either way.');
   }
   log('INFO', `When finished, re-paste this file with CLEANUP_LIST = '${LIST}' to drain and remove it.`);
+  } catch (err) {
+    log('FAIL', `The run threw and stopped here: ${err && err.message}`);
+    log('FAIL', 'Every row below it is unasked, and the table says so.');
+  } finally {
+    // After every row, and reached however the run ended.
+    report();
+  }
 })();
