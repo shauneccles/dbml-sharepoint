@@ -7,6 +7,7 @@ from _packs import blocks, entities, entity, pack, with_tail, write_dbml, write_
 from _paths import FIXTURES, SOLUTION_TEMPLATES
 
 from dbml_sharepoint.analysis import provenance
+from dbml_sharepoint.analysis.conditions import CAML_VIEW_FILTER_GUARD
 from dbml_sharepoint.analysis.list_description import (
     DESCRIPTION_LIMIT,
     MARKER_GROWTH_RESERVE,
@@ -1667,9 +1668,10 @@ def test_view_caml_condition_sort_and_group() -> None:
     )
     assert caml == (
         '<GroupBy Collapse="TRUE"><FieldRef Name="Impact"/></GroupBy>'
-        '<Where><Or><IsNull><FieldRef Name="Status"/></IsNull>'
+        '<Where><And><Or><IsNull><FieldRef Name="Status"/></IsNull>'
         '<Neq><FieldRef Name="Status"/>'
-        '<Value Type="Text">Closed</Value></Neq></Or></Where>'
+        '<Value Type="Text">Closed</Value></Neq></Or>'
+        f"{CAML_VIEW_FILTER_GUARD}</And></Where>"
         '<OrderBy><FieldRef Name="RiskScore" Ascending="FALSE"/></OrderBy>'
     )
 
@@ -1705,12 +1707,13 @@ def test_view_caml_ands_multiple_conditions() -> None:
         {"Status": "status_enum", "SortOrder": "int", "Owner": "person"},
     )
     assert caml == (
-        "<Where><And><And>"
+        "<Where><And><And><And>"
         '<Eq><FieldRef Name="Status"/><Value Type="Text">Open</Value></Eq>'
         '<Geq><FieldRef Name="SortOrder"/><Value Type="Number">5</Value></Geq>'
         "</And>"
         '<IsNotNull><FieldRef Name="Owner"/></IsNotNull>'
-        "</And></Where>"
+        "</And>"
+        f"{CAML_VIEW_FILTER_GUARD}</And></Where>"
     )
 
 
@@ -1726,8 +1729,9 @@ def test_view_caml_today_offsets_and_ascending_sort() -> None:
         {"DueDate": "date"},
     )
     assert caml == (
-        '<Where><Leq><FieldRef Name="DueDate"/>'
-        '<Value Type="DateTime"><Today OffsetDays="30"/></Value></Leq></Where>'
+        '<Where><And><Leq><FieldRef Name="DueDate"/>'
+        '<Value Type="DateTime"><Today OffsetDays="30"/></Value></Leq>'
+        f"{CAML_VIEW_FILTER_GUARD}</And></Where>"
         '<OrderBy><FieldRef Name="DueDate"/></OrderBy>'
     )
     bare = _caml(
@@ -1798,9 +1802,10 @@ def test_schema_json_carries_declared_views(tmp_path: Path) -> None:
         "title": "Open risks",
         "view_fields": ["Title", "Status", "DueDate"],
         "caml_query": (
-            '<Where><Or><IsNull><FieldRef Name="Status"/></IsNull>'
+            '<Where><And><Or><IsNull><FieldRef Name="Status"/></IsNull>'
             '<Neq><FieldRef Name="Status"/>'
-            '<Value Type="Text">Closed</Value></Neq></Or></Where>'
+            '<Value Type="Text">Closed</Value></Neq></Or>'
+            f"{CAML_VIEW_FILTER_GUARD}</And></Where>"
             '<OrderBy><FieldRef Name="DueDate"/></OrderBy>'
         ),
         # No totals declared: the empty string is what the deploy reads as
@@ -3410,3 +3415,41 @@ def test_a_budget_of_zero_or_less_still_returns_the_marker_intact() -> None:
     assert "some note" not in negative
 
     assert note_budget(family_negative, entity) == 0, "the budget must never go negative"
+
+
+def test_every_declared_view_filter_is_emitted_protected() -> None:
+    """No emitted view may be left in a shape the filter editor will open.
+
+    A view the editor opens is one an operator can truncate to ten conditions
+    by pressing Save, with nothing in the build or the deploy able to see it
+    happen. Measured 2026-08-17: caml-chain-depth-probe.js U2 watched a save
+    rewrite forty conditions to ten, and W2 against W4 isolated a group in the
+    right child as what the editor refuses.
+    """
+    filtered = 0
+    for view in _schema_json_for("risk-register")["views"]:
+        if "<Where>" not in view["caml_query"]:
+            continue
+        filtered += 1
+        assert CAML_VIEW_FILTER_GUARD in view["caml_query"], view["title"]
+        assert view["caml_query"].count("<Where>") == 1, view["title"]
+    # Without this the loop passes vacuously on a family that stopped
+    # declaring filters, which is the shape this suite has shipped before.
+    assert filtered > 0
+
+
+def test_a_view_with_no_filter_gains_no_where_clause() -> None:
+    """An unfiltered view must stay editable.
+
+    Measured 2026-08-17 (view-edit-page-probe.js F7): an unfiltered view's
+    edit page carries the filter editor's controls, so it reads as
+    unprotected and must remain so. Guarding it would also invent a <Where>
+    for a view whose author declared none.
+    """
+    unfiltered = [
+        view for view in _schema_json_for("risk-register")["views"]
+        if "<Where>" not in view["caml_query"]
+    ]
+    assert unfiltered
+    for view in unfiltered:
+        assert CAML_VIEW_FILTER_GUARD not in view["caml_query"], view["title"]
