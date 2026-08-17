@@ -154,13 +154,21 @@ def test_every_committed_writer_pins_lf() -> None:
     """
     offenders: list[str] = []
     for source in sorted(PACKAGE.rglob("*.py")):
-        for number, line in enumerate(source.read_text(encoding="utf-8").splitlines(), 1):
-            if ".write_text(" not in line or line.strip().startswith("#"):
+        text = source.read_text(encoding="utf-8")
+        for match in re.finditer(r"\.write_text\s*\(", text):
+            # Read to the closing bracket, because a compliant call may put
+            # `newline="\n"` on a later line and judging the opening line
+            # alone would reject it.
+            depth, index = 1, match.end()
+            while index < len(text) and depth:
+                depth += {"(": 1, ")": -1}.get(text[index], 0)
+                index += 1
+            if "newline=" in text[match.end():index]:
                 continue
-            if "newline=" in line:
-                continue
-            # A call split across lines carries the argument further down.
-            offenders.append(f"{source.relative_to(PACKAGE).as_posix()}:{number}")
+            offenders.append(
+                f"{source.relative_to(PACKAGE).as_posix()}:"
+                f"{text[:match.start()].count(chr(10)) + 1}"
+            )
     assert not offenders, (
         f"write_text without newline=\"\\n\": {offenders}. Use the helper for "
         f"the surface you are writing, or pass newline explicitly."

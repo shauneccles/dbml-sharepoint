@@ -3138,12 +3138,19 @@ def test_an_unreadable_settings_page_warns_and_a_readable_one_can_fail() -> None
     assert block.index("summary.errors.push") > condition
     assert block.index("log('ERROR'") > condition
 
-    # Every path that could not answer returns without recording a failure.
-    # A check that cannot see the page is not evidence the page is wrong.
-    warns = [i for i, line in enumerate(block.splitlines()) if "log('WARN'" in line]
-    assert len(warns) == 3
+    # Every path that could not answer routes through one helper, returns,
+    # and records a warning rather than an error. A check that could not read
+    # the page is not evidence the page is wrong.
+    calls = [line.strip() for line in block.splitlines() if "unconfirmed(" in line]
+    assert len(calls) == 3, calls
     lines = block.splitlines()
-    for index in warns:
-        following = "\n".join(lines[index:index + 6])
+    for index, line in enumerate(lines):
+        if "unconfirmed(" not in line:
+            continue
+        following = chr(10).join(lines[index:index + 6])
         assert "return;" in following
         assert "summary.errors.push" not in following
+
+    # The warning still reaches the run summary, so a deployment cannot report
+    # clean while this went unanswered.
+    assert "summary.warnings.push" in script

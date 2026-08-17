@@ -3260,8 +3260,30 @@
   // an absence test.
   const EDITOR_PAGE_SENTINEL = 'ViewFilter';
 
+  // Warned rather than failed, per the ruling of 2026-08-17: a check that
+  // could not read the page is not evidence the view is unprotected. It is
+  // recorded on the summary all the same, so a run cannot report a clean
+  // deployment while this went unanswered.
+  const unconfirmed = (why) => {
+    log('WARN', `[Phase 3.1] Could not confirm the filter editor refuses the`
+      + ` emitted shape (${why}). The views themselves are verified.`);
+    summary.warnings = summary.warnings || [];
+    summary.warnings.push({ phase: '3.1', check: 'filter-editor-refusal', why });
+  };
+
   async function confirmEditorRefusesTheGuard() {
-    const guarded = SCHEMA.views.find((v) => (v.caml_query || '').includes('<Where>'));
+    // A view whose AUTHORED filter is a single leaf, so only the guard can
+    // make the editor refuse it. The first filtered view will often be one
+    // whose own tree already refuses (30 of the 192 shipped views did
+    // before this change), and confirming on that one would establish
+    // nothing about the guard. Falls back to any filtered view, which is
+    // still better than not asking.
+    const filtered = SCHEMA.views.filter((v) => (v.caml_query || '').includes('<Where>'));
+    const guardOnly = (v) => {
+      const body = (v.caml_query.match(/<Where>([\s\S]*)<\/Where>/) || [])[1] || '';
+      return body.startsWith('<And>') && body.indexOf('<Or>') === body.lastIndexOf('<Or>');
+    };
+    const guarded = filtered.find(guardOnly) || filtered[0];
     if (!guarded) {
       log('INFO', `[Phase 3.1] No filtered view declared, so nothing to confirm.`);
       return;
@@ -3298,8 +3320,7 @@
       why = (err && err.message) || String(err);
     }
     if (!listId || !viewId) {
-      log('WARN', `[Phase 3.1] Could not identify '${guarded.title}' to confirm the`
-        + ` filter editor refuses it (${why}). The view itself is verified; the protection is not.`);
+      unconfirmed(`could not identify '${guarded.title}': ${why}`);
       return;
     }
 
@@ -3314,17 +3335,20 @@
       res = await fetchWithRetry(pageUrl, { credentials: 'same-origin' });
       body = await res.text();
     } catch (err) {
-      log('WARN', `[Phase 3.1] Could not read the view settings page (${err.message}).`
-        + ' The view is verified; whether the editor refuses it is unconfirmed.');
+      unconfirmed(`could not read the view settings page: ${err.message}`);
       return;
     }
     // A login or modern-settings redirect answers 200, so res.ok alone would
     // hand the wrong HTML to the test below.
     const landed = res.ok && !res.redirected && res.url.includes('ViewEdit.aspx');
-    if (!landed || !body.includes(EDITOR_PAGE_SENTINEL)) {
-      log('WARN', `[Phase 3.1] View settings page did not arrive as asked`
-        + ` (HTTP ${res.status}, redirected=${res.redirected}, sentinel=${body.includes(EDITOR_PAGE_SENTINEL)}).`
-        + ' The view is verified; whether the editor refuses it is unconfirmed.');
+    // A response cut short after the sentinel and before the controls has
+    // neither, and absence is the whole predicate, so require the document
+    // to have ended. view-edit-page-probe.js C6 measured a page that is not
+    // a view; it did not measure a truncated one.
+    const complete = body.trimEnd().endsWith('</html>');
+    if (!landed || !complete || !body.includes(EDITOR_PAGE_SENTINEL)) {
+      unconfirmed(`HTTP ${res.status}, redirected=${res.redirected}, `
+        + `complete=${complete}, sentinel=${body.includes(EDITOR_PAGE_SENTINEL)}`);
       return;
     }
     const present = EDITOR_CONTROLS.filter((control) => body.includes(control));
