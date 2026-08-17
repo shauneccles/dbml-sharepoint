@@ -2241,12 +2241,12 @@ def test_the_protected_renderer_agrees_with_to_caml_on_the_inner_filter() -> Non
 
 
 def test_to_caml_is_unchanged_for_its_other_callers() -> None:
-    """The excluded-values fragment and the grammar oracle must see no guard.
+    """The grammar's own capability oracle must see no guard.
 
-    `to_caml` renders a sub-expression inline in `_leaf` and is the oracle the
-    grammar uses to decide what it can express, so a guard there would nest a
-    view-level construct inside a fragment. Index analysis is not among its
-    callers: it works on the tree, via `_index_covered(normalise(...))`.
+    `to_caml` is the CAML entry in `_RENDERERS`, dispatched per leaf to decide
+    what a target can express. A guard there would put a view-level construct
+    into that answer. Index analysis is not among its callers: it works on the
+    tree, via `_index_covered(normalise(...))`.
     """
     condition = parse_condition([{"field": "Status", "op": "eq", "value": "Open"}], "ctx")
     assert "IsNotNull" not in to_caml(condition, {"Status": "Text"})

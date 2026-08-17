@@ -131,9 +131,11 @@ def to_caml_protected(condition: Condition, column_types: dict[str, str]) -> str
 
 Render a VIEW's `<Where>` body in the shape the filter editor refuses.
 
-Views only. `to_caml` stays unguarded because its other use is a
-sub-expression rendered inline in `_leaf`, where a view-level conjunct
-would change what the grammar reports.
+A separate function rather than a `protected` flag on `to_caml`, because
+`to_caml` is an entry in `_RENDERERS` and is dispatched there as
+`(condition, types)` to decide what a target can express. A required flag
+would break that registry, and a defaulted one would let a future view
+path emit an unguarded filter with nothing to say so.
 
 The editor refuses a filter whose right child is a group, and a view it
 cannot open it cannot truncate (measured 2026-08-17,
