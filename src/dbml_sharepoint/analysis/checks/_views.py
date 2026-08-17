@@ -11,6 +11,7 @@ from dbml_sharepoint.analysis.conditions import (
     effective_column_types,
     leaves,
     normalise,
+    to_caml,
 )
 from dbml_sharepoint.analysis.findings import Finding, FindingCode, Location, Section
 from dbml_sharepoint.analysis.joins import (
@@ -24,6 +25,7 @@ from dbml_sharepoint.analysis.joins import (
 from dbml_sharepoint.analysis.limits import (
     LIST_VIEW_THRESHOLD,
     LIST_VIEW_THRESHOLD_FALLBACK_ROWS,
+    MAX_VIEW_FILTER_CONDITIONS,
     MAX_VIEW_ROW_LIMIT,
 )
 from dbml_sharepoint.analysis.rendered_columns import SYSTEM_COLUMNS, rendered_columns
@@ -649,16 +651,33 @@ def check(vc: ValidationContext) -> list[Finding]:
                 # one code. This one returns them already classified, so a
                 # filter rejected for an unrenderable operator and one rejected
                 # for an unknown column are now different codes.
-                findings.extend(
-                    condition_findings(
-                        view.where,
-                        target=CAML,
-                        rendered=view_rendered,
-                        types={**SYSTEM_COLUMN_TYPES, **types_by_col},
-                        lookups=lookup_cols,
-                        at=at_where,
-                    )
+                where_findings = condition_findings(
+                    view.where,
+                    target=CAML,
+                    rendered=view_rendered,
+                    types={**SYSTEM_COLUMN_TYPES, **types_by_col},
+                    lookups=lookup_cols,
+                    at=at_where,
                 )
+                findings.extend(where_findings)
+                # Counted on rendered leaves rather than authored clauses,
+                # because `in` over N values renders as N of them. Only when
+                # the grammar accepted the condition: `to_caml` raises on one
+                # it refuses, and those are already reported above.
+                if not where_findings:
+                    leaf_count = to_caml(
+                        view.where, {**SYSTEM_COLUMN_TYPES, **types_by_col},
+                    ).count("<FieldRef")
+                    if leaf_count > MAX_VIEW_FILTER_CONDITIONS:
+                        findings.append(Finding(
+                            FindingCode.VIEW_FILTER_EXCEEDS_EDITOR_CAPACITY,
+                            f"{ctx}.where: renders {leaf_count} conditions, more "
+                            f"than the {MAX_VIEW_FILTER_CONDITIONS} the filter "
+                            "editor can show. The view is emitted protected, so "
+                            "an operator cannot truncate it, and it cannot be "
+                            "adjusted in the UI either.",
+                            location=at_where,
+                        ))
                 # System columns are dropped before anything is decided. They
                 # are filterable but not declarable, so they can neither carry
                 # a DBML index nor be reported as missing one.

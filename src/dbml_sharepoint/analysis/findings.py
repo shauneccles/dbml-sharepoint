@@ -246,6 +246,12 @@ class FindingCode(StrEnum):
     UNMAPPED_SCHEMA_TABLE = "unmapped_schema_table", "error"
     UNSUPPORTED_BASE_TEMPLATE = "unsupported_base_template", "error"
     WATCHED_COLUMN_NOT_RENDERED = "watched_column_not_rendered", "error"
+    # Warning severity: the emitted filter is already protected from the
+    # editor (#267), so the author only loses the ability to adjust the view
+    # in the UI.
+    VIEW_FILTER_EXCEEDS_EDITOR_CAPACITY = (
+        "view_filter_exceeds_editor_capacity", "warning",
+    )
     # A view's CustomFormatter is stored in the view schema XML, so a bare `&`
     # in it opens an entity reference and makes SharePoint's own document
     # malformed. Measured 2026-08-11: the view MERGE returns HTTP 500,

@@ -39,6 +39,7 @@ from dbml_sharepoint.analysis.limits import (
     MAX_ROLE_DEFINITION_DESCRIPTION,
     MAX_VALIDATION_FORMULA,
     MAX_VALIDATION_MESSAGE,
+    MAX_VIEW_FILTER_CONDITIONS,
     MAX_VIEW_ROW_LIMIT,
 )
 from dbml_sharepoint.analysis.list_description import MARKER_GROWTH_RESERVE
@@ -1138,6 +1139,13 @@ FINDING_HELP: dict[FindingCode, str] = {
     FindingCode.WATCHED_COLUMN_NOT_RENDERED: (
         "A `watched_lists:` entry names a column the deploy never "
         "creates."
+    ),
+    FindingCode.VIEW_FILTER_EXCEEDS_EDITOR_CAPACITY: (
+        f"A view's `where` renders more than {MAX_VIEW_FILTER_CONDITIONS} "
+        "conditions, which is more than the classic filter editor can show. "
+        "The emitted filter is protected so an operator cannot truncate it "
+        "by pressing Save, and the view can no longer be adjusted in the UI "
+        "at all."
     ),
     FindingCode.VIEW_FORMATTER_XML_METACHARACTER: (
         "A view formatter contains a raw `&` or `<`. A view's CustomFormatter "

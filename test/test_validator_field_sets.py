@@ -11,12 +11,14 @@ from _model import schema as make_schema
 from _model import table as make_table
 from _packs import blocks, pack
 from _paths import PACKAGE
-from _validator_helpers import _project_errors
+from _validator_helpers import _project_errors, _project_inputs
 
 from dbml_sharepoint.analysis.findings import Finding, FindingCode, Location, Section
+from dbml_sharepoint.analysis.limits import MAX_VIEW_FILTER_CONDITIONS
 from dbml_sharepoint.analysis.validator import (
     validate_against_mapping,
 )
+from dbml_sharepoint.model.conditions import parse_condition
 from dbml_sharepoint.model.mapping_types import (
     DemoItem,
     EntityKind,
@@ -660,3 +662,82 @@ def test_a_document_library_reports_the_kind_not_the_base_template() -> None:
     errors = _docs_errors(_library())
     only(errors, FindingCode.DOCUMENT_LIBRARY_UNSUPPORTED)
     none_of(errors, FindingCode.UNSUPPORTED_BASE_TEMPLATE)
+
+
+# The measured number, spelled as a LITERAL here on purpose. Deriving the
+# fixture sizes from `MAX_VIEW_FILTER_CONDITIONS` made both sides of the
+# comparison move together, so setting the constant to 9 or to 11 left every
+# test below green and the constant unpinned.
+#
+# Measured 2026-08-17: caml-chain-depth-probe.js U2 watched a save rewrite a
+# forty-condition filter to ten, and view-edit-page-probe.js C4 read ten
+# FieldPicker controls out of the editor markup.
+_MEASURED_EDITOR_SLOTS = 10
+
+
+def _project_with_view_conditions(n: int) -> tuple[Schema, MappingBundle]:
+    """The Project fixture with a view whose filter renders `n` conditions."""
+    where = parse_condition(
+        [{"field": "SortOrder", "op": "eq", "value": i} for i in range(n)],
+        "views[Project].Open.where",
+    )
+    return _project_inputs(views=_view("Open", "Title", "SortOrder", where=where))
+
+
+def test_the_editor_capacity_is_the_number_that_was_measured() -> None:
+    """The constant must be what the probes read, not merely self-consistent.
+
+    Every boundary test below uses the literal, so this is the one place the
+    constant and the measurement are compared.
+    """
+    assert MAX_VIEW_FILTER_CONDITIONS == _MEASURED_EDITOR_SLOTS
+
+
+def test_a_filter_within_the_editors_capacity_is_not_warned_about() -> None:
+    """Ten conditions must not warn. This kills the mutant that lowers it."""
+    schema, bundle = _project_with_view_conditions(_MEASURED_EDITOR_SLOTS)
+    none_of(
+        validate_against_mapping(schema, bundle),
+        FindingCode.VIEW_FILTER_EXCEEDS_EDITOR_CAPACITY,
+    )
+
+
+def test_a_filter_past_the_editors_capacity_is_warned_about() -> None:
+    """Eleven conditions must warn. This kills the mutant that raises it.
+
+    Measured 2026-08-17: the editor renders ten slots and a save writes back
+    only what it rendered, so an eleventh condition is dropped by an operator
+    pressing Save.
+    """
+    schema, bundle = _project_with_view_conditions(_MEASURED_EDITOR_SLOTS + 1)
+    found = only(
+        validate_against_mapping(schema, bundle),
+        FindingCode.VIEW_FILTER_EXCEEDS_EDITOR_CAPACITY,
+    )
+    assert str(_MEASURED_EDITOR_SLOTS) in found.message
+    assert found.location == Location(
+        Section.VIEWS, entity="Project", view="Open", sub="where",
+    )
+
+
+def test_an_in_list_counts_as_one_condition_per_value() -> None:
+    """`op: in` over N values renders as N leaves, so it counts as N.
+
+    Counting authored clauses instead of rendered leaves is the error that
+    produced the wrong corpus figures on #267: one authored clause here, and
+    eleven conditions in the editor.
+    """
+    where = parse_condition(
+        [{
+            "field": "SortOrder", "op": "in",
+            "value": list(range(_MEASURED_EDITOR_SLOTS + 1)),
+        }],
+        "views[Project].Open.where",
+    )
+    schema, bundle = _project_inputs(
+        views=_view("Open", "Title", "SortOrder", where=where),
+    )
+    only(
+        validate_against_mapping(schema, bundle),
+        FindingCode.VIEW_FILTER_EXCEEDS_EDITOR_CAPACITY,
+    )
