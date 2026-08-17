@@ -1,5 +1,6 @@
 """Validator: declared views, and display names."""
 from pathlib import Path
+from typing import Any
 
 import pytest
 from _builders import ID_PK, TITLE, table
@@ -13,7 +14,7 @@ from _packs import write_dbml
 from _validator_helpers import _project_errors, _project_inputs
 
 from dbml_sharepoint.analysis.conditions import to_validation
-from dbml_sharepoint.analysis.findings import FindingCode, Location, Section
+from dbml_sharepoint.analysis.findings import Finding, FindingCode, Location, Section
 from dbml_sharepoint.analysis.limits import MAX_VALIDATION_FORMULA
 from dbml_sharepoint.analysis.validator import (
     validate_against_mapping,
@@ -680,6 +681,87 @@ def test_demo_items_valid_set_passes() -> None:
         f for f in errors
         if f.location is not None and f.location.section == Section.DEMO_ITEMS
     ] == []
+
+def _multi_value_demo_errors(**values: Any) -> list[Finding]:
+    """One demo row on a table carrying a multi-value column and a `date[]`.
+
+    `_project_errors` cannot serve these: its fixture declares no array-typed
+    column, and arity is the whole subject here.
+    """
+    schema = make_schema(
+        make_table(
+            "Audit",
+            "Title",
+            column("Events", "audit_event[]"),
+            column("Reviewed", "date[]"),
+            note="The multi-value demo fixture.",
+        ),
+        enums=[make_enum("audit_event", "View", "Edit")],
+    )
+    bundle = make_bundle(
+        entities=["Audit"],
+        demo_items={
+            "Audit": [DemoItem(key="a1", values={"Title": "[DEMO] Audit", **values})],
+        },
+    )
+    return by_severity(validate_against_mapping(schema, bundle), "error")
+
+def test_a_bogus_member_in_a_multi_value_demo_value_is_refused() -> None:
+    """Measured broken on 2026-08-18: this validated clean and shipped.
+
+    `enum_by_name` is keyed by the bare enum name, so a column typed
+    `audit_event[]` missed the dict and membership was skipped rather than
+    failed, while `reference/mapping.md:1753` promised it was checked.
+    """
+    errors = _multi_value_demo_errors(Events=["View", "Nonsense"])
+    found = only(errors, FindingCode.DEMO_ENUM_VALUE_UNKNOWN)
+    # The MEMBER, not the list: a message naming the whole value leaves the
+    # reader to find which of them SharePoint would have refused.
+    assert "Nonsense" in found.message
+    assert "View" not in found.message
+
+def test_a_scalar_literal_for_a_multi_value_column_is_refused() -> None:
+    """A MultiChoice column's write shape is a collection, not a scalar."""
+    only(
+        _multi_value_demo_errors(Events="View"),
+        FindingCode.DEMO_MULTI_VALUE_NOT_A_LIST,
+    )
+
+def test_a_repeated_member_in_a_demo_value_is_refused() -> None:
+    """Nothing has measured what a repeated member reads back as."""
+    found = only(
+        _multi_value_demo_errors(Events=["View", "View"]),
+        FindingCode.DEMO_MULTI_VALUE_DUPLICATE_MEMBER,
+    )
+    assert "View" in found.message
+    # Every member is a member of the enum, so the repeat is the only fault.
+    none_of(_multi_value_demo_errors(Events=["View", "View"]),
+            FindingCode.DEMO_ENUM_VALUE_UNKNOWN)
+
+def test_an_empty_multi_value_demo_value_is_accepted() -> None:
+    """An unset multi-value column is a legitimate thing to demonstrate."""
+    errors = _multi_value_demo_errors(Events=[])
+    none_of(errors, FindingCode.DEMO_MULTI_VALUE_NOT_A_LIST)
+    none_of(errors, FindingCode.DEMO_ENUM_VALUE_UNKNOWN)
+
+def test_a_valid_multi_value_demo_value_is_accepted() -> None:
+    errors = _multi_value_demo_errors(Events=["View", "Edit"])
+    assert [
+        f for f in errors
+        if f.location is not None and f.location.section == Section.DEMO_ITEMS
+    ] == []
+
+def test_a_multi_value_date_demo_value_is_refused() -> None:
+    """`col_type in DATE_TYPES` missed `date[]`, so the grammar went unread.
+
+    A list is not a date in any of the two spellings the rule accepts, and
+    `_resolve_column` refuses a `date[]` column outright, so the demo rule
+    agreeing with it is the point rather than a new restriction.
+    """
+    only(
+        _multi_value_demo_errors(Reviewed=["someday"]),
+        FindingCode.DEMO_DATE_VALUE_INVALID,
+    )
 
 def test_view_url_slug_collision_is_error() -> None:
     # "A+B" and "A B" both slug to ABApsx. Two views cannot share one URL.

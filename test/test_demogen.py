@@ -207,6 +207,16 @@ def test_a_today_offset_keeps_its_sign_through_the_planner() -> None:
     assert _field_plan("date", "D", "today-7")["value"] == -7
 
 
+def test_the_planner_reads_the_date_grammar_whatever_the_arity() -> None:
+    """`date[]` is not a key in the planner's date set, so the offset went out
+    as the literal string "today+30" while the type read as covered."""
+    from dbml_sharepoint.generators.demogen import _field_plan
+
+    assert _field_plan("date[]", "D", "today+30") == {
+        "name": "D", "kind": "date_offset", "value": 30,
+    }
+
+
 def test_the_demo_validator_refuses_everything_the_planner_refuses() -> None:
     """The planner and the validator are two readers of one authored value.
     Where the planner raises, the validator must already have reported.

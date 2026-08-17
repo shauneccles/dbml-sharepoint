@@ -339,6 +339,17 @@ FINDING_HELP: dict[FindingCode, str] = {
         "A demo row's hyperlink object value is not `{url: <address>, "
         "description: <label>}` with `description` optional."
     ),
+    FindingCode.DEMO_MULTI_VALUE_DUPLICATE_MEMBER: (
+        "A demo row repeats a member within one multi-value value. The "
+        "measured write shape is a collection of choices, and nothing "
+        "has measured what a repeated member reads back as, so the row "
+        "is refused rather than seeded into an unmeasured state."
+    ),
+    FindingCode.DEMO_MULTI_VALUE_NOT_A_LIST: (
+        "A demo row writes a multi-value column with a scalar. The write "
+        "shape is a collection, so the value has to be authored as a "
+        "list. An empty list is accepted and leaves the column unset."
+    ),
     FindingCode.DEMO_OBJECT_VALUE_INVALID: (
         "A demo row's object value is not exactly `{demo_ref: <key>}`."
     ),

@@ -309,6 +309,8 @@ class FindingCode(StrEnum):
     DEMO_PERSON_VALUE_UNSUPPORTED = "demo_person_value_unsupported", "error"
     DEMO_DATE_VALUE_INVALID = "demo_date_value_invalid", "error"
     DEMO_ENUM_VALUE_UNKNOWN = "demo_enum_value_unknown", "error"
+    DEMO_MULTI_VALUE_NOT_A_LIST = "demo_multi_value_not_a_list", "error"
+    DEMO_MULTI_VALUE_DUPLICATE_MEMBER = "demo_multi_value_duplicate_member", "error"
 
     # --- retirement and the sections it folds into (checks/_retirement.py) --
     CALCULATED_FORMULA_REFERENCES_A_RETIRED_COLUMN = (

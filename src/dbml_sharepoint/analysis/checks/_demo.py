@@ -10,7 +10,10 @@ from dbml_sharepoint.analysis.rendered_columns import rendered_columns
 from dbml_sharepoint.analysis.typemap import (
     DATE_TYPES,
     TODAY_SENTINEL,
+    choice_enum_for,
+    element_type,
     is_hyperlink,
+    is_multi_value,
     is_person,
 )
 
@@ -108,7 +111,40 @@ def check(vc: ValidationContext) -> list[Finding]:
                         location=at,
                     ))
                     continue
-                # Hyperlinks are checked FIRST, and in BOTH authored shapes:
+                # ARITY IS ANSWERED FIRST, because every rule below reads one
+                # scalar and a rule handed a list reports the wrong fault.
+                if is_multi_value(col_type or ""):
+                    if not isinstance(value, list):
+                        findings.append(Finding(
+                            FindingCode.DEMO_MULTI_VALUE_NOT_A_LIST,
+                            f"{ctx}: {col_name} is a multi-value column "
+                            f"({col_type}), so its demo value must be a list of "
+                            f"members, got {value!r}. An empty list is accepted "
+                            f"and leaves the column unset.",
+                            location=at,
+                        ))
+                        continue
+                    # Compared by list rather than by set: a demo value can
+                    # hold an unhashable member, and these lists are tiny.
+                    seen: list[object] = []
+                    repeated: list[object] = []
+                    for member in value:
+                        if member not in seen:
+                            seen.append(member)
+                        elif member not in repeated:
+                            repeated.append(member)
+                    if repeated:
+                        findings.append(Finding(
+                            FindingCode.DEMO_MULTI_VALUE_DUPLICATE_MEMBER,
+                            f"{ctx}: {col_name} repeats "
+                            f"{', '.join(repr(m) for m in repeated)}. The measured "
+                            f"write shape is a collection of choices and nothing "
+                            f"has measured what a repeat reads back as, so declare "
+                            f"each member once.",
+                            location=at,
+                        ))
+                # Hyperlinks are checked before the object-value rule below,
+                # and in BOTH authored shapes:
                 # a URL column takes a bare address or a {url, description}
                 # record. Gating this on `isinstance(value, dict)` left the
                 # scalar form unchecked, and the generator DOES refuse a
@@ -195,7 +231,9 @@ def check(vc: ValidationContext) -> list[Finding]:
                             location=at,
                         ))
                     continue
-                if col_type in DATE_TYPES:
+                # Through `element_type`, because `date[]` is not a key in
+                # DATE_TYPES and the rule read as though it covered the column.
+                if element_type(col_type or "") in DATE_TYPES:
                     valid_date = False
                     if isinstance(value, str) and TODAY_SENTINEL.match(value):
                         valid_date = True
@@ -214,13 +252,28 @@ def check(vc: ValidationContext) -> list[Finding]:
                             location=at,
                         ))
                     continue
-                demo_enum = enum_by_name.get(col_type or "")
-                if demo_enum is not None and value not in demo_enum.members:
-                    findings.append(Finding(
-                        FindingCode.DEMO_ENUM_VALUE_UNKNOWN,
-                        f"{ctx}: {col_name} value {value!r} is not a member "
-                        f"of enum {col_type}.",
-                        location=at,
-                    ))
+                # Two steps rather than a lookup: the resolver answers with the
+                # NAME, and this rule needs the members behind it.
+                enum_name = choice_enum_for(col_type or "", enum_by_name)
+                if enum_name is None:
+                    continue
+                demo_enum = enum_by_name[enum_name]
+                # Membership is the same rule per member on a multi-value
+                # column, so it keeps the same code rather than gaining a twin.
+                # The arity test stays here: on a SCALAR enum column a list is
+                # simply not a member, which is what already fires today.
+                declared = (
+                    value
+                    if is_multi_value(col_type or "") and isinstance(value, list)
+                    else [value]
+                )
+                for member in declared:
+                    if member not in demo_enum.members:
+                        findings.append(Finding(
+                            FindingCode.DEMO_ENUM_VALUE_UNKNOWN,
+                            f"{ctx}: {col_name} value {member!r} is not a member "
+                            f"of enum {col_type}.",
+                            location=at,
+                        ))
 
     return findings

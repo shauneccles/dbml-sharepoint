@@ -14,7 +14,12 @@ and the teardown contract.
 from typing import Any
 
 from dbml_sharepoint.analysis.ordering import site_tables_in_order
-from dbml_sharepoint.analysis.typemap import TODAY_SENTINEL, is_hyperlink, is_person
+from dbml_sharepoint.analysis.typemap import (
+    TODAY_SENTINEL,
+    element_type,
+    is_hyperlink,
+    is_person,
+)
 from dbml_sharepoint.model.mapping_types import MappingBundle
 from dbml_sharepoint.model.parser import Schema
 from dbml_sharepoint.model.release import Release
@@ -73,7 +78,9 @@ def _field_plan(col_type: str | None, name: str, value: Any) -> dict[str, Any]:
             "kind": "url",
             "value": {"url": url, "description": str(description or url)},
         }
-    if col_type in _DATE_TYPES and isinstance(value, str):
+    # Through `element_type`, because `date[]` is not a key in this set and the
+    # test read as though it covered the column.
+    if element_type(col_type or "") in _DATE_TYPES and isinstance(value, str):
         m = _TODAY_OFFSET.match(value)
         if m:
             # The shared pattern captures sign and digits separately, so an
