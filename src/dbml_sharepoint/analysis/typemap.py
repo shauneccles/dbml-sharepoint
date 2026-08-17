@@ -203,10 +203,10 @@ def choice_enum_for(col_type: str, enum_names: Collection[str]) -> str | None:
     `audit_event[]` missed all three while each rule read as though it covered
     the column -- the failure `unsupported_index_reason` already records.
 
-    No arity branch, because `element_type` returns a scalar unchanged and its
+    There is no arity branch: `element_type` returns a scalar unchanged and its
     docstring says a branch is where the two arms come to disagree.
 
-    NOT for the arity-sensitive guards. `supports_unique` and the multi-value
+    This is not for the arity-sensitive guards. `supports_unique` and the multi-value
     default refusal answer differently for the two arities by design, and are
     deliberately not routed here.
     """

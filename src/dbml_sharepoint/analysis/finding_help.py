@@ -341,7 +341,8 @@ FINDING_HELP: dict[FindingCode, str] = {
     ),
     FindingCode.DEMO_MULTI_VALUE_DUPLICATE_MEMBER: (
         "A demo row repeats a member within one multi-value value. The "
-        "measured write shape is a collection of choices, and nothing "
+        "write shape measured as M3 on 2026-08-17 is a collection of "
+        "choices, and nothing "
         "has measured what a repeated member reads back as, so the row "
         "is refused rather than seeded into an unmeasured state."
     ),

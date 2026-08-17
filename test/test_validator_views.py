@@ -711,7 +711,7 @@ def test_a_bogus_member_in_a_multi_value_demo_value_is_refused() -> None:
 
     `enum_by_name` is keyed by the bare enum name, so a column typed
     `audit_event[]` missed the dict and membership was skipped rather than
-    failed, while `reference/mapping.md:1753` promised it was checked.
+    failed, while the demo value grammar in `reference/mapping.md` promised it was checked.
     """
     errors = _multi_value_demo_errors(Events=["View", "Nonsense"])
     found = only(errors, FindingCode.DEMO_ENUM_VALUE_UNKNOWN)

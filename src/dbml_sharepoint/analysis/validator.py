@@ -116,7 +116,8 @@ def validate(schema: Schema) -> list[Finding]:
                     f"enum member {member!r} is declared {count} times. The "
                     f"deploy body carries the members as an ordered `Choices` "
                     f"collection and the field reconciler compares that "
-                    f"collection index by index, so the repeat can leave the "
+                    f"collection index by index. What SharePoint stores for a "
+                    f"repeated member is unmeasured, so the repeat can leave the "
                     f"reconciler unable to converge. Declare the member once.",
                 ))
         if not enum.members:

@@ -102,7 +102,7 @@ dbml-sharepoint explain unknown_column_type
 | `demo_enum_value_unknown` | error | A demo row's value is not a member of the column's enum. |
 | `demo_hyperlink_address_invalid` | error | A demo row's hyperlink address is not a non-empty string. Checked as a string, not stringified -- `str(None)` is `"None"`, which would deploy as a link pointing at the word None. |
 | `demo_hyperlink_object_invalid` | error | A demo row's hyperlink object value is not `{url: <address>, description: <label>}` with `description` optional. |
-| `demo_multi_value_duplicate_member` | error | A demo row repeats a member within one multi-value value. The measured write shape is a collection of choices, and nothing has measured what a repeated member reads back as, so the row is refused rather than seeded into an unmeasured state. |
+| `demo_multi_value_duplicate_member` | error | A demo row repeats a member within one multi-value value. The write shape measured as M3 on 2026-08-17 is a collection of choices, and nothing has measured what a repeated member reads back as, so the row is refused rather than seeded into an unmeasured state. |
 | `demo_multi_value_not_a_list` | error | A demo row writes a multi-value column with a scalar. The write shape is a collection, so the value has to be authored as a list. An empty list is accepted and leaves the column unset. |
 | `demo_object_value_invalid` | error | A demo row's object value is not exactly `{demo_ref: <key>}`. |
 | `demo_person_value_unsupported` | error | A demo row writes a person column with something other than `"@me"`, the deploying operator. |

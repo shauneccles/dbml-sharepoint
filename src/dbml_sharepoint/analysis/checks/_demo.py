@@ -137,8 +137,9 @@ def check(vc: ValidationContext) -> list[Finding]:
                         findings.append(Finding(
                             FindingCode.DEMO_MULTI_VALUE_DUPLICATE_MEMBER,
                             f"{ctx}: {col_name} repeats "
-                            f"{', '.join(repr(m) for m in repeated)}. The measured "
-                            f"write shape is a collection of choices and nothing "
+                            f"{', '.join(repr(m) for m in repeated)}. The write "
+                            f"shape measured as M3 on 2026-08-17 is a collection "
+                            f"of choices and nothing "
                             f"has measured what a repeat reads back as, so declare "
                             f"each member once.",
                             location=at,

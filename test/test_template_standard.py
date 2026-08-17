@@ -1232,7 +1232,7 @@ def test_a_view_filtering_a_multi_value_column_is_evaluable() -> None:
     """An unevaluable operator skips the WHOLE template, not one view.
 
     So a single `includes` filter would silently retire every other view's
-    demo-satisfaction check in that family. `includes` is the only operator
+    demo-satisfaction check in that family. `includes` and `not_includes` are the only comparisons
     such a view can carry, because `analysis/conditions.py` refuses `eq` on a
     multi-value column and directs the author here.
     """
