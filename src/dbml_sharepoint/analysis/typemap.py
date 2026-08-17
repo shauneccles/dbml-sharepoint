@@ -154,6 +154,17 @@ NUMBER_TYPES = frozenset({"int", "number", "calculated_number"})
 # The settings grammar is a closed set and `multi` is not in it.
 MULTI_VALUE_SUFFIX = "[]"
 
+# THE ITEM WRITE SHAPE, measured as M3 by `test/manual/multi-value-probe.js`
+# on run 3, 2026-08-17: a multi-value column takes
+# `{"__metadata": {"type": "Collection(Edm.String)"}, "results": [..]}`.
+# Learn's list-item REST page documents no multi-value example at all, so the
+# probe tried four candidate shapes most-likely-first and recorded which one
+# SharePoint took. It broke on the first success, which means the three others
+# (a bare `{results: [..]}`, a bare array, and a `;#`-delimited string) are
+# UNMEASURED rather than refused. Spelled once here so the emitter and every
+# reader of a multi-value payload quote the same measured string.
+MULTI_VALUE_METADATA_TYPE = "Collection(Edm.String)"
+
 
 def is_multi_value(col_type: str) -> bool:
     """Whether a declared DBML type holds many values rather than one.

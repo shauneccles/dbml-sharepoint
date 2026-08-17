@@ -15,9 +15,11 @@ from typing import Any
 
 from dbml_sharepoint.analysis.ordering import site_tables_in_order
 from dbml_sharepoint.analysis.typemap import (
+    MULTI_VALUE_METADATA_TYPE,
     TODAY_SENTINEL,
     element_type,
     is_hyperlink,
+    is_multi_value,
     is_person,
 )
 from dbml_sharepoint.model.mapping_types import MappingBundle
@@ -42,7 +44,8 @@ DEMO_TITLE_PREFIX = "[DEMO] "
 _DATE_TYPES = {"date", "datetime"}
 
 
-def _field_plan(col_type: str | None, name: str, value: Any) -> dict[str, Any]:
+def _field_plan(col_type: str | None, name: str, value: Any) -> dict[str, Any] | None:
+    """The typed plan for one demo field, or None when the field is omitted."""
     # Keyed on `demo_ref` rather than on being a dict at all: a hyperlink
     # value is also a mapping, and a bare isinstance check claimed it as a
     # lookup reference and then raised KeyError.
@@ -92,6 +95,31 @@ def _field_plan(col_type: str | None, name: str, value: Any) -> dict[str, Any]:
                 "kind": "date_offset",
                 "value": -offset if sign == "-" else offset,
             }
+    # Placed immediately before `literal`, which is where a multi-value column
+    # would otherwise land and emit the bare array nothing has sent. The kinds
+    # above keep their place: each answers a shape arity does not change, and
+    # `date[]` reaches the date grammar deliberately.
+    if is_multi_value(col_type or ""):
+        if not isinstance(value, list):
+            # DEMO_MULTI_VALUE_NOT_A_LIST reports this first, so reaching here
+            # means the validator and the planner have drifted. There is no
+            # honest coercion: one member is not a measured collection.
+            raise ValueError(
+                f"{name}: a multi-value demo value must be a list of members, "
+                f"got {value!r}.",
+            )
+        if not value:
+            # An empty list OMITS the field. `multi-value-probe.js:586` seeded
+            # its empty row behind `if (row.values.length)` and M4 measured
+            # that column reading back `null` (2026-08-17), so omission is the
+            # only route to an unset column that anything has sent.
+            return None
+        return {
+            "name": name,
+            "kind": "multi_value",
+            "metadata_type": MULTI_VALUE_METADATA_TYPE,
+            "results": list(value),
+        }
     return {"name": name, "kind": "literal", "value": value}
 
 
@@ -112,13 +140,16 @@ def generate_demo_js(
         table = tables_by_name[table_name]
         types_by_col = {c.name: c.type for c in table.columns}
         for item in bundle.mapping.demo_items.get(table_name, []):
+            planned = (
+                _field_plan(types_by_col.get(name), name, value)
+                for name, value in item.values.items()
+            )
             demo_plan.append({
                 "list": bundle.mapping.prefix + table_name,
                 "key": item.key,
-                "fields": [
-                    _field_plan(types_by_col.get(name), name, value)
-                    for name, value in item.values.items()
-                ],
+                # A None plan is an omitted field, which is how an empty
+                # multi-value column stays unset.
+                "fields": [field for field in planned if field is not None],
             })
 
     template = env.get_template("demo.js.j2")

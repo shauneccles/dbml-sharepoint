@@ -159,6 +159,8 @@ def test_a_hyperlink_demo_value_may_carry_its_own_description() -> None:
         "MinutesUrl",
         {"url": "https://example.invalid/m.docx", "description": "March minutes"},
     )
+    # None is an omitted field, which a hyperlink value never is.
+    assert plan is not None
     assert plan["kind"] == "url"
     assert plan["value"] == {
         "url": "https://example.invalid/m.docx",
@@ -202,9 +204,12 @@ def test_a_today_offset_keeps_its_sign_through_the_planner() -> None:
     group would make every negative offset a crash or a positive."""
     from dbml_sharepoint.generators.demogen import _field_plan
 
-    assert _field_plan("date", "D", "today")["value"] == 0
-    assert _field_plan("date", "D", "today+30")["value"] == 30
-    assert _field_plan("date", "D", "today-7")["value"] == -7
+    # Asserted on the whole plan rather than one key, because the planner now
+    # returns None for an omitted field and a key lookup would not type-check.
+    for declared, offset in (("today", 0), ("today+30", 30), ("today-7", -7)):
+        assert _field_plan("date", "D", declared) == {
+            "name": "D", "kind": "date_offset", "value": offset,
+        }
 
 
 def test_the_planner_reads_the_date_grammar_whatever_the_arity() -> None:
@@ -215,6 +220,90 @@ def test_the_planner_reads_the_date_grammar_whatever_the_arity() -> None:
     assert _field_plan("date[]", "D", "today+30") == {
         "name": "D", "kind": "date_offset", "value": 30,
     }
+
+
+def _multi_value_js(members: list[str]) -> str:
+    schema = make_schema(
+        make_table("Audit", column("Title", required=True), column("Events", "audit_event[]")),
+        enums=[enum("audit_event", "View", "Edit")],
+    )
+    bundle = make_bundle(
+        entities=["Audit"],
+        demo_items={
+            "Audit": [
+                DemoItem(key="a1", values={"Title": "[DEMO] Audit", "Events": members}),
+            ],
+        },
+    )
+    return generate_demo_js(
+        schema=schema,
+        bundle=bundle,
+        release=load_release(FIXTURES / "release.yaml"),
+        site_url="https://example.sharepoint.com/sites/test",
+        site_role="default",
+        source_dbml="s.dbml",
+        generated_at="2026-05-04T00:00:00Z",
+    )
+
+
+def test_a_multi_value_demo_value_plans_the_measured_write_shape() -> None:
+    """Measured 2026-08-17 as M3 by `test/manual/multi-value-probe.js`, run 3.
+
+    The bare array a plain literal would have emitted is UNMEASURED: the probe
+    tried its four candidates most-likely-first and broke on the first
+    success, so no other shape was ever sent under the verbose Content-Type
+    these scripts write with (`templates/_http_write.js.j2`).
+    """
+    from dbml_sharepoint.analysis.typemap import MULTI_VALUE_METADATA_TYPE
+    from dbml_sharepoint.generators.demogen import _field_plan
+
+    # Pinned as a literal as well as by name: the name alone would follow the
+    # constant to any value, and the value is the measured half.
+    assert MULTI_VALUE_METADATA_TYPE == "Collection(Edm.String)"
+    assert _field_plan("audit_event[]", "Events", ["View", "Edit"]) == {
+        "name": "Events",
+        "kind": "multi_value",
+        "metadata_type": MULTI_VALUE_METADATA_TYPE,
+        "results": ["View", "Edit"],
+    }
+
+
+def test_an_empty_multi_value_demo_value_omits_the_field() -> None:
+    """Omission is the only measured route to the `null` M4 read back.
+
+    `multi-value-probe.js:586` seeds its empty row behind
+    `if (row.values.length)`, so the field never reached the payload and the
+    column read back `null` on 2026-08-17. Writing `null` is a shape nobody
+    has sent.
+    """
+    from dbml_sharepoint.generators.demogen import _field_plan
+
+    assert _field_plan("audit_event[]", "Events", []) is None
+
+
+def test_the_emitted_script_writes_a_multi_value_field_as_a_collection() -> None:
+    """The plan carries the measured type name and the script sends it.
+
+    Asserted on the plan's own lines rather than on a compact JSON fragment:
+    `demo.js.j2` renders the plan with `tojson(indent=2)`, so it is one key
+    per line and a compact substring can never match.
+    """
+    js = _multi_value_js(["View", "Edit"])
+    assert '"kind": "multi_value"' in js
+    assert '"metadata_type": "Collection(Edm.String)"' in js
+    assert "f.kind === 'multi_value'" in js
+    assert "__metadata: { type: f.metadata_type }, results: f.results" in js
+
+
+def test_an_empty_multi_value_demo_value_never_reaches_the_emitted_fields() -> None:
+    """The omission is decided by the planner, so the plan carries no field.
+
+    Deciding it in the template instead would leave the plan carrying a value
+    the script drops, and the two would then be free to disagree.
+    """
+    js = _multi_value_js([])
+    assert '"Events"' not in js
+    assert '"kind": "multi_value"' not in js
 
 
 def test_the_demo_validator_refuses_everything_the_planner_refuses() -> None:
@@ -248,4 +337,16 @@ def test_the_demo_validator_refuses_everything_the_planner_refuses() -> None:
         {"url": "https://example.invalid/a.pdf", "description": "A file"},
     ]
     for good in accepted:
-        assert _field_plan("hyperlink", "Link", good)["kind"] == "url"
+        plan = _field_plan("hyperlink", "Link", good)
+        assert plan is not None
+        assert plan["kind"] == "url"
+
+    # A scalar on a multi-value column: the planner has no honest collection
+    # to build from one member, and DEMO_MULTI_VALUE_NOT_A_LIST reports it
+    # first. A demo_ref object is NOT in this list: the `ref` kind claims it
+    # before arity is read, and the validator refuses it either way, so the
+    # planner is the laxer of the two there rather than the stricter.
+    refused_on_a_multi_value_column: list[Any] = ["View", None, 3]
+    for refused in refused_on_a_multi_value_column:
+        with _pytest.raises(ValueError):
+            _field_plan("audit_event[]", "Events", refused)

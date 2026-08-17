@@ -74,6 +74,12 @@ NUMBER_TYPES = frozenset({'calculated_number', 'int', 'number'})
 MULTI_VALUE_SUFFIX = '[]'
 ```
 
+### `MULTI_VALUE_METADATA_TYPE`
+
+```python
+MULTI_VALUE_METADATA_TYPE = 'Collection(Edm.String)'
+```
+
 ### `is_multi_value`
 
 ```python
