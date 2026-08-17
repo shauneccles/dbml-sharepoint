@@ -3102,7 +3102,7 @@ def test_the_deploy_confirms_the_editor_still_refuses_the_guard() -> None:
     """
     script = _deploy_js()
     assert "ViewEdit.aspx" in script
-    assert "FieldPicker1" in script
+    assert 'name=\"FieldPicker1\"' in script
     # A sentinel gates the absence check. C6 measured a request for a view
     # that does not exist answering 200 with no editor controls, so absence
     # alone would call a page that is not a view protected. Pinned as the
@@ -3130,7 +3130,7 @@ def test_an_unreadable_settings_page_warns_and_a_readable_one_can_fail() -> None
     # The failure is reachable ONLY under the control-present test, and the
     # push is a statement rather than a guarded expression: `void 0 && push`
     # would satisfy a containment test while never running.
-    condition = block.index("if (body.includes(EDITOR_CONTROL))")
+    condition = block.index("if (present.length > 0)")
     pushes = [
         line.strip() for line in block.splitlines() if "summary.errors.push" in line
     ]

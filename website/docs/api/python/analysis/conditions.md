@@ -141,6 +141,23 @@ The editor refuses a filter whose right child is a group, and a view it
 cannot open it cannot truncate (measured 2026-08-17,
 caml-chain-depth-probe.js W2, W4, T2).
 
+### `caml_condition_count`
+
+```python
+def caml_condition_count(condition: Condition, column_types: dict[str, str]) -> int
+```
+
+How many comparisons the rendered CAML presents to the filter editor.
+
+Not the tree's leaf count. `neq` and `not_includes` each render an
+`<IsNull>` arm beside the comparison, and `not_in` renders one for the
+whole group, so six authored `neq` clauses render twelve comparisons. The
+editor shows a row per comparison, so that larger number is the one an
+author is warned about.
+
+Counted on the UNGUARDED form: the guard adds two comparisons of its own
+and is not something the author wrote.
+
 ### `to_expression`
 
 ```python

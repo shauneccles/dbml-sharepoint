@@ -14,7 +14,7 @@ from _paths import PACKAGE
 from _validator_helpers import _project_errors, _project_inputs
 
 from dbml_sharepoint.analysis.findings import Finding, FindingCode, Location, Section
-from dbml_sharepoint.analysis.limits import MAX_VIEW_FILTER_CONDITIONS
+from dbml_sharepoint.analysis.limits import MAX_FILTER_EDITOR_CONDITIONS
 from dbml_sharepoint.analysis.validator import (
     validate_against_mapping,
 )
@@ -665,7 +665,7 @@ def test_a_document_library_reports_the_kind_not_the_base_template() -> None:
 
 
 # The measured number, spelled as a LITERAL here on purpose. Deriving the
-# fixture sizes from `MAX_VIEW_FILTER_CONDITIONS` made both sides of the
+# fixture sizes from `MAX_FILTER_EDITOR_CONDITIONS` made both sides of the
 # comparison move together, so setting the constant to 9 or to 11 left every
 # test below green and the constant unpinned.
 #
@@ -690,7 +690,7 @@ def test_the_editor_capacity_is_the_number_that_was_measured() -> None:
     Every boundary test below uses the literal, so this is the one place the
     constant and the measurement are compared.
     """
-    assert MAX_VIEW_FILTER_CONDITIONS == _MEASURED_EDITOR_SLOTS
+    assert MAX_FILTER_EDITOR_CONDITIONS == _MEASURED_EDITOR_SLOTS
 
 
 def test_a_filter_within_the_editors_capacity_is_not_warned_about() -> None:

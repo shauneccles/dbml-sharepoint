@@ -232,10 +232,11 @@ EXPRESSION = "expression"
 VALIDATION = "validation"
 
 # Conjoined onto a VIEW's filter so the classic filter editor refuses to open
-# it, because an editor that opens it writes back only the ten conditions it
-# rendered. Measured 2026-08-17: caml-chain-depth-probe.js W2, W4, T2.
-# That the two halves match every row is ASSUMED and unverified; probe rows T3
-# and S2 ask it and neither has run. See #267.
+# it, which is what stops an operator truncating the filter. See #267 and
+# MAX_FILTER_EDITOR_CONDITIONS.
+# Measured 2026-08-17: the editor refuses this shape (caml-chain-depth-probe.js
+# W2, W4, T2), and the two halves return every row when asked alone, so
+# conjoining them removes nothing (T3, 41 of 41; view-edit-page-probe.js S2).
 CAML_VIEW_FILTER_GUARD = (
     "<Or>"
     '<IsNotNull><FieldRef Name="ID"/></IsNotNull>'
@@ -1084,6 +1085,21 @@ def to_caml_protected(condition: Condition, column_types: dict[str, str]) -> str
     caml-chain-depth-probe.js W2, W4, T2).
     """
     return f"<And>{to_caml(condition, column_types)}{CAML_VIEW_FILTER_GUARD}</And>"
+
+
+def caml_condition_count(condition: Condition, column_types: dict[str, str]) -> int:
+    """How many comparisons the rendered CAML presents to the filter editor.
+
+    Not the tree's leaf count. `neq` and `not_includes` each render an
+    `<IsNull>` arm beside the comparison, and `not_in` renders one for the
+    whole group, so six authored `neq` clauses render twelve comparisons. The
+    editor shows a row per comparison, so that larger number is the one an
+    author is warned about.
+
+    Counted on the UNGUARDED form: the guard adds two comparisons of its own
+    and is not something the author wrote.
+    """
+    return to_caml(condition, column_types).count("<FieldRef")
 
 
 def to_expression(condition: Condition, column_types: dict[str, str]) -> str:

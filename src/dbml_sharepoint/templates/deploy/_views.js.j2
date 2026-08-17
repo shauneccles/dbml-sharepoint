@@ -385,28 +385,28 @@
   // independent, so their lanes run concurrently.
   await mapLanes(SCHEMA.views, (view) => view.list, deployView, 4);
 
-  // ---- Did the guard actually take? -------------------------------------
-  // Every filtered view is emitted in a shape the filter editor refuses to
-  // open, because an editor that opens a filter writes back only the ten
-  // conditions it rendered (#267). The readback above already proves the
-  // stored ViewQuery is the declared one, per view. What it cannot see is
-  // whether THIS tenant's editor still refuses that shape, which is a
-  // property of SharePoint's UI on the day of the deploy.
+  // ---- Confirm the editor still refuses the guard -----------------------
+  // The readback above proves each stored ViewQuery is the declared one. It
+  // cannot show whether this tenant's editor still refuses that shape, which
+  // is a property of SharePoint's UI on the day of the deploy. See #267.
   //
-  // One fetch, not one per view: the guard is identical across views and
-  // each view's stored query is already verified, so one page answers for
-  // all of them. The page measured 501,773 characters on 2026-08-17, so
-  // per-view would add roughly 96MB to a 192-view bundle.
+  // One fetch covers every view, because the guard is identical across them
+  // and each view's stored query is already verified above. The page measured
+  // 501,773 characters on 2026-08-17, so fetching one per view would pull
+  // roughly 96MB over a 192-view deploy.
   //
-  // Measured 2026-08-17 by test/manual/view-edit-page-probe.js. C1 and C2:
-  // the editor's own control names are on an editable page and on an
-  // unfiltered one, and absent from a refused one. Control NAMES rather than
-  // the English refusal message, which would misreport a non-English tenant.
-  const EDITOR_CONTROL = 'FieldPicker1';
-  // C6: a request for a view that does not exist answers HTTP 200 on this
-  // URL with no editor controls, so absence alone would call a page that is
-  // not a view "protected". `ctl00` and `ViewEdit` are on that page too and
-  // are useless here; only this one tracks the filter section.
+  // The editor's own form controls, as the `name` ATTRIBUTE the probe read.
+  // A bare substring would also match the word in page script, and would then
+  // report a protected view as editable and abort the run.
+  // Measured 2026-08-17, view-edit-page-probe.js C1 and C2: both are present
+  // on an editable page and on an unfiltered one, and absent from a refused
+  // one. Two of them because C2's result is that they agree; disagreement is
+  // the signal that the markup moved.
+  const EDITOR_CONTROLS = ['name="FieldPicker1"', 'name="OperatorPicker1"'];
+  // C6: a request for a view that does not exist answers HTTP 200 on this URL
+  // with no editor controls, and with `ViewEdit` and `ctl00` present and
+  // `ViewFilter` absent. So this is the only one of the three that can gate
+  // an absence test.
   const EDITOR_PAGE_SENTINEL = 'ViewFilter';
 
   async function confirmEditorRefusesTheGuard() {
@@ -456,12 +456,14 @@
         + ' The view is verified; whether the editor refuses it is unconfirmed.');
       return;
     }
-    if (body.includes(EDITOR_CONTROL)) {
+    const present = EDITOR_CONTROLS.filter((control) => body.includes(control));
+    if (present.length > 0) {
       // The page arrived and the editor is on it, so the filter is editable
-      // and an operator can truncate it. That is a determination, not an
-      // absence of one, so it fails the run rather than warning.
+      // and an operator can truncate it. The check answered, so this fails
+      // the run; the warnings above are the cases where it could not answer.
       const message = `view '${guarded.title}' on '${guarded.list}' is still editable in the filter`
-        + ' editor, so its filter can be truncated by an operator pressing Save';
+        + ` editor (${present.join(', ')}), so its filter can be truncated by an operator`
+        + ' pressing Save';
       log('ERROR', `[Phase {{ phase.number }}] ${message}`);
       summary.errors.push({
         phase: '{{ phase.number }}', list: guarded.list, view: guarded.title, error: message,

@@ -2,6 +2,7 @@
 from pathlib import Path
 from typing import Any, ClassVar
 
+import pytest
 from _builders import ID_PK, TITLE, table
 from _packs import blocks, entities, entity, pack, with_tail, write_dbml, write_mapping
 from _paths import FIXTURES, SOLUTION_TEMPLATES
@@ -3417,6 +3418,49 @@ def test_a_budget_of_zero_or_less_still_returns_the_marker_intact() -> None:
     assert note_budget(family_negative, entity) == 0, "the budget must never go negative"
 
 
+def _shipped_solution_ids() -> list[str]:
+    """Discovered, never listed. A hardcoded roster fails open."""
+    return sorted(
+        path.parent.parent.name
+        for path in SOLUTION_TEMPLATES.glob("*/10-design/schema.dbml")
+    )
+
+
+@pytest.mark.parametrize("solution_id", _shipped_solution_ids())
+def test_every_shipped_view_filter_is_emitted_protected(solution_id: str) -> None:
+    """No shipped view may be emitted in a shape the filter editor will open.
+
+    Asserted on the EMITTED query rather than by calling the renderer, which
+    would compare the renderer to itself and stay green if `jsgen` reverted to
+    30 of the 192 shipped filtered views were already protected before this
+    change, by which clause happened to render last. Counted 2026-08-17 by
+    rendering every shipped `where` and taking those whose top node has a
+    group in the right child.
+    """
+    for view in _schema_json_for(solution_id)["views"]:
+        if "<Where>" not in view["caml_query"]:
+            continue
+        assert CAML_VIEW_FILTER_GUARD in view["caml_query"], (
+            f"{solution_id}/{view['list']}/{view['title']}"
+        )
+
+
+def test_the_shipped_corpus_still_declares_filtered_views() -> None:
+    """The per-solution test above passes vacuously on a corpus with none.
+
+    Measured 2026-08-17: 192 filtered views. The floor is well under that,
+    because the real number moves whenever a family gains a view and pinning
+    it exactly would fail for the wrong reason.
+    """
+    total = sum(
+        1
+        for solution_id in _shipped_solution_ids()
+        for view in _schema_json_for(solution_id)["views"]
+        if "<Where>" in view["caml_query"]
+    )
+    assert total > 100, total
+
+
 def test_every_declared_view_filter_is_emitted_protected() -> None:
     """No emitted view may be left in a shape the filter editor will open.
 
@@ -3432,7 +3476,6 @@ def test_every_declared_view_filter_is_emitted_protected() -> None:
             continue
         filtered += 1
         assert CAML_VIEW_FILTER_GUARD in view["caml_query"], view["title"]
-        assert view["caml_query"].count("<Where>") == 1, view["title"]
     # Without this the loop passes vacuously on a family that stopped
     # declaring filters, which is the shape this suite has shipped before.
     assert filtered > 0
@@ -3450,6 +3493,7 @@ def test_a_view_with_no_filter_gains_no_where_clause() -> None:
         view for view in _schema_json_for("risk-register")["views"]
         if "<Where>" not in view["caml_query"]
     ]
+    # `assert unfiltered` is the whole test: the comprehension already
+    # selected on the absence of a <Where>, and the guard is only ever emitted
+    # inside one, so a per-view assertion below could not fail.
     assert unfiltered
-    for view in unfiltered:
-        assert CAML_VIEW_FILTER_GUARD not in view["caml_query"], view["title"]

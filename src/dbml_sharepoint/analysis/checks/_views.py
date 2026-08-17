@@ -6,12 +6,12 @@ from dbml_sharepoint.analysis.column_refs import formatter_field_refs
 from dbml_sharepoint.analysis.conditions import (
     CAML,
     SYSTEM_COLUMN_TYPES,
+    caml_condition_count,
     condition_fields,
     condition_findings,
     effective_column_types,
     leaves,
     normalise,
-    to_caml,
 )
 from dbml_sharepoint.analysis.findings import Finding, FindingCode, Location, Section
 from dbml_sharepoint.analysis.joins import (
@@ -25,7 +25,7 @@ from dbml_sharepoint.analysis.joins import (
 from dbml_sharepoint.analysis.limits import (
     LIST_VIEW_THRESHOLD,
     LIST_VIEW_THRESHOLD_FALLBACK_ROWS,
-    MAX_VIEW_FILTER_CONDITIONS,
+    MAX_FILTER_EDITOR_CONDITIONS,
     MAX_VIEW_ROW_LIMIT,
 )
 from dbml_sharepoint.analysis.rendered_columns import SYSTEM_COLUMNS, rendered_columns
@@ -372,6 +372,35 @@ def _join_finding(
     )
 
 
+def _editor_capacity_finding(
+    where: Condition, types: dict[str, str], ctx: str, at: Location,
+) -> Finding | None:
+    """Warn when a filter renders more comparisons than the editor can show.
+
+    Returns None for a condition the grammar refuses, which is already
+    reported with a code of its own. Gating on "no other findings" instead
+    would hold this warning back for the whole filter over one typo'd column
+    name, so the author would fix the typo and meet a new warning on the next
+    build, reading as though the fix had caused it.
+    """
+    try:
+        shown = caml_condition_count(where, types)
+    except ValueError:
+        return None
+    if shown <= MAX_FILTER_EDITOR_CONDITIONS:
+        return None
+    return Finding(
+        FindingCode.VIEW_FILTER_EXCEEDS_EDITOR_CAPACITY,
+        f"{ctx}.where: the declared filter renders {shown} comparisons, more "
+        f"than the {MAX_FILTER_EDITOR_CONDITIONS} the filter editor can show. "
+        "The emitted filter is protected, so this is survivable; if that "
+        "protection is ever removed or fails to take, this view loses the "
+        "comparisons past the tenth the first time somebody opens its "
+        "settings. A negated clause renders two.",
+        location=at,
+    )
+
+
 def check(vc: ValidationContext) -> list[Finding]:
     bundle = vc.bundle
     tables_by_name = vc.tables_by_name
@@ -651,33 +680,21 @@ def check(vc: ValidationContext) -> list[Finding]:
                 # one code. This one returns them already classified, so a
                 # filter rejected for an unrenderable operator and one rejected
                 # for an unknown column are now different codes.
+                where_types = {**SYSTEM_COLUMN_TYPES, **types_by_col}
                 where_findings = condition_findings(
                     view.where,
                     target=CAML,
                     rendered=view_rendered,
-                    types={**SYSTEM_COLUMN_TYPES, **types_by_col},
+                    types=where_types,
                     lookups=lookup_cols,
                     at=at_where,
                 )
                 findings.extend(where_findings)
-                # Counted on rendered leaves rather than authored clauses,
-                # because `in` over N values renders as N of them. Only when
-                # the grammar accepted the condition: `to_caml` raises on one
-                # it refuses, and those are already reported above.
-                if not where_findings:
-                    leaf_count = to_caml(
-                        view.where, {**SYSTEM_COLUMN_TYPES, **types_by_col},
-                    ).count("<FieldRef")
-                    if leaf_count > MAX_VIEW_FILTER_CONDITIONS:
-                        findings.append(Finding(
-                            FindingCode.VIEW_FILTER_EXCEEDS_EDITOR_CAPACITY,
-                            f"{ctx}.where: renders {leaf_count} conditions, more "
-                            f"than the {MAX_VIEW_FILTER_CONDITIONS} the filter "
-                            "editor can show. The view is emitted protected, so "
-                            "an operator cannot truncate it, and it cannot be "
-                            "adjusted in the UI either.",
-                            location=at_where,
-                        ))
+                oversized = _editor_capacity_finding(
+                    view.where, where_types, ctx, at_where,
+                )
+                if oversized is not None:
+                    findings.append(oversized)
                 # System columns are dropped before anything is decided. They
                 # are filterable but not declarable, so they can neither carry
                 # a DBML index nor be reported as missing one.
