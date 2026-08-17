@@ -150,7 +150,16 @@
  *   positive control (an indexed Text comparison matching 60 of 6,000) was
  *   SERVED. The negative control (the same comparison on Shadow, byte-
  *   identical data, no index) was REFUSED, HTTP 500
- *   SPQueryThrottledException. Shadow was never auto-indexed at any size.
+ *   SPQueryThrottledException.
+ *
+ *   THAT LAST SENTENCE USED TO READ "Shadow was never auto-indexed at any
+ *   size", and the run of 2026-08-17 falsified it: Shadow came back
+ *   Indexed=true, AutoIndexed=true, so SharePoint had indexed it on its
+ *   own between runs. The negative control expires when that happens, and
+ *   with it every indexed-versus-unindexed comparison in this file. IDXCLR
+ *   now tries to clear the flag before anything is measured and says
+ *   whether the clear stuck. Treat "not auto-indexed" as a per-run
+ *   observation rather than a property of the column.
  *
  *   ANSWERED: a CAML <IsNull> on an INDEXED column IS served past the
  *   threshold: 60 rows, exact, HTTP 200. So is the OData `eq null` form, which
@@ -386,6 +395,7 @@
 
   expect('RUNCNT', 'Live ItemCount matches a declared checkpoint');
   expect('IDXSET', 'The intended indexes are set and the controls are not');
+  expect('IDXCLR', 'Can the negative control be un-indexed again?');
   expect('FLAGS', 'Indexed/AutoIndexed for all six columns');
   expect('CMPIDX', 'OData comparison, INDEXED Text (positive control)');
   expect('CMPUNI', 'OData comparison, UNINDEXED twin of Bucket (negative control)');
@@ -591,10 +601,10 @@
   //
   // Overriding Content-Type in extraHeaders works because the harness spreads
   // extraHeaders LAST, so a caller can replace a default rather than only add.
-  const setIndexed = async (name) => {
+  const setIndexed = async (name, indexed = true) => {
     const digest = await getDigest();
     return spPost(`${fieldsPath}/getbyinternalnameortitle('${name}')`,
-                  { __metadata: { type: 'SP.Field' }, Indexed: true }, digest,
+                  { __metadata: { type: 'SP.Field' }, Indexed: indexed }, digest,
                   {
                     Accept: 'application/json;odata=verbose',
                     'Content-Type': 'application/json;odata=verbose',
@@ -948,6 +958,52 @@
   // table. Read the flags back rather than trusting the status code. The
   // deployer's own index step is documented as "verified by readback" for
   // exactly this reason.
+  // ---- Restore the negative control before reading anything -----------
+  // Run of 2026-08-17: Shadow came back Indexed=true, AutoIndexed=true, so
+  // SharePoint had indexed it between runs and the negative control had
+  // expired. Without the control, "the indexed one was served" says nothing:
+  // the unindexed twin is what shows the throttle is enforced at this size.
+  //
+  // Attempted before IDXSET reads the flags, and REPORTED rather than
+  // assumed. If SharePoint re-indexes it during the run, or refuses the
+  // clear, the table below is void and IDXSET is what says so.
+  const clearControl = async () => {
+    const before = await readField('Shadow');
+    const wasIndexed = !readFailed(before) && before.body.Indexed === true;
+    if (!wasIndexed) {
+      record('IDXCLR', 'Can the negative control be un-indexed again?',
+             'NOT NEEDED',
+             `[${stamp}] Shadow is already unindexed, so the negative control `
+             + 'stands and nothing was written.');
+      return;
+    }
+    if (!ALLOW_WRITES) {
+      record('IDXCLR', 'Can the negative control be un-indexed again?',
+             'NOT ESTABLISHED',
+             `[${stamp}] Shadow is indexed and ALLOW_WRITES is false, so the `
+             + 'control cannot be restored. Every indexed-versus-unindexed row '
+             + 'is void until it is.');
+      return;
+    }
+    const cleared = await setIndexed('Shadow', false);
+    const after = await readField('Shadow');
+    const nowIndexed = readFailed(after) || after.body.Indexed !== false;
+    record('IDXCLR', 'Can the negative control be un-indexed again?',
+           nowIndexed ? 'DID NOT STICK' : 'CLEARED',
+           `[${stamp}] Shadow read Indexed=true; MERGE Indexed:false -> HTTP `
+           + `${cleared.status}; readback Indexed=`
+           + `${readFailed(after) ? 'unreadable' : after.body.Indexed}. `
+           + (nowIndexed
+             ? 'So the negative control cannot be restored on this list and '
+               + 'every indexed-versus-unindexed row here is void. Whether '
+               + 'SharePoint re-applies it immediately or the write was '
+               + 'refused, the comparison is gone either way.'
+             : 'The control is restored for this run. It was SharePoint that '
+               + 'set the flag, not this probe, so expect it back: read '
+               + 'FLAGS at the end of the run before trusting any pair.'));
+  };
+  await clearControl();
+
   const flags = [];
   const wrong = [];
   for (const [name, shouldBeIndexed] of schemas) {
