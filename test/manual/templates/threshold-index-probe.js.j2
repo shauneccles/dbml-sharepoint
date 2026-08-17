@@ -406,6 +406,8 @@
   expect('CMPUNI', 'OData comparison, UNINDEXED twin of Bucket (negative control)');
   expect('NULIDX', 'OData null test, INDEXED DateTime');
   expect('CMPCAM', 'CAML comparison, INDEXED Text');
+  expect('TWINCK', 'Do the indexed and unindexed twins still match the same rows?');
+  expect('TWINCK', 'Do the indexed and unindexed twins still match the same rows?');
   expect('GRDIDX', 'CAML comparison, INDEXED Text, GUARDED as #272 emits it');
   expect('GRDNUL', 'CAML IsNull, INDEXED DateTime, GUARDED as #272 emits it');
   expect('GRDUNI', 'CAML comparison, UNINDEXED twin, GUARDED (control)');
@@ -2223,7 +2225,13 @@
     // Rows and status, judged by nothing. The caller compares.
     const rawCaml = async (where) => {
       const digest = await getDigest();
-      const viewXml = `<View><Query>${where}</Query><RowLimit>${PAGE}</RowLimit></View>`;
+      // RowLimit ABOVE the list size on purpose. Run of 2026-08-17 sent
+      // RowLimit 200 and both controls came back with exactly 200 rows:
+      // SharePoint filled the page from the rows it had scanned and
+      // returned, so nothing breached the threshold and every 'served'
+      // here was uninformative. A limit past the list cannot be filled
+      // early, so a query that must scan the list has to scan it.
+      const viewXml = `<View><Query>${where}</Query><RowLimit>${count + 1000}</RowLimit></View>`;
       const r = await spPost(
         `web/lists/getbytitle('${odata(LIST)}')/RenderListDataAsStream`,
         { parameters: { ViewXml: viewXml } }, digest);
@@ -2261,6 +2269,33 @@
             + 'view, so a filter that worked at this size stops working, on the '
             + `largest lists, and no build can see it. ${wrapped.text}`));
     };
+
+    // ---- Are the twins still twins? -----------------------------------
+    // Bucket and Shadow are seeded byte-identical, so the two filters must
+    // match the same rows. Run of 2026-08-17: Bucket returned 56 and Shadow
+    // returned 200, the page limit exactly, which is not a difference in
+    // indexing but a filter that did not restrict. Whenever that holds,
+    // GRDUNI is uninterpretable and so is any reading of GRDIDX as "the
+    // threshold was enforced and the guard survived it".
+    if (guardBlocked) {
+      record('TWINCK', 'Do the indexed and unindexed twins still match the same rows?',
+             'NOT ESTABLISHED', `[${stamp}] not measured: ${guardBlocked}.`);
+    } else {
+      const bucketRows = await rawCaml(`<Where>${IDX_LEAF}</Where>`);
+      const shadowRows = await rawCaml(`<Where>${UNI_LEAF}</Where>`);
+      const agree = bucketRows.ok && shadowRows.ok
+        && bucketRows.rows === shadowRows.rows;
+      record('TWINCK', 'Do the indexed and unindexed twins still match the same rows?',
+        agree ? 'AGREE' : 'DISAGREE',
+        `[${stamp}] Bucket: HTTP ${bucketRows.status}, ${bucketRows.rows} row(s). `
+        + `Shadow: HTTP ${shadowRows.status}, ${shadowRows.rows} row(s). `
+        + (agree
+          ? 'Identical data, identical counts, so the pair differs only in the '
+            + 'index and GRDUNI below is a comparison rather than a coincidence.'
+          : 'The twins do NOT match the same rows, so they differ in more than '
+            + 'the index and no indexed-versus-unindexed row here is readable. '
+            + 'Reconcile the seed before reading GRDUNI.'));
+    }
 
     // The two measurements. Both twins are on INDEXED columns and are expected
     // to be served, so a change here is the guard's doing.
