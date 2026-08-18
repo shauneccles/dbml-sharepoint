@@ -1,6 +1,6 @@
 [project]
 name = "dbml-sharepoint"
-version = "0.1.0"
+version = "0.4.0"
 description = "Turn a DBML schema + YAML mapping into an idempotent, fail-closed browser-console deploy.js that provisions SharePoint Online lists, with no tenant admin, no premium licence, and no install on the target."
 readme = "README.md"
 requires-python = ">=3.13"

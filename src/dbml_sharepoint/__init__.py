@@ -40,4 +40,4 @@ What a hook is given, from the parsed inputs:
   and `dbml_sharepoint.model.parser.Column` are the parsed DBML.
 """
 
-__version__ = "0.1.0"  # x-release-please-version
+__version__ = "0.4.0"  # x-release-please-version
