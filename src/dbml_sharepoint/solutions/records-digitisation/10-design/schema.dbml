@@ -1,0 +1,195 @@
+// ============================================================================
+// Records digitisation: platform capability assessment. One row per business
+// platform, answering ONE question.
+// Render the ERD by pasting this file into https://dbdiagram.io
+//
+// THE QUESTION IS NOT "can this platform store documents". It is: can it KEEP
+// A RECORD, for a retention period that in a health service reaches decades.
+// A disposal standard gives that test exactly two lawful shapes. A system is
+// acceptable when it either manages retention and disposal IN PLACE, or lets
+// the records and their required metadata be EXTRACTED into another system
+// that will then manage them. Every column here earns its place by helping
+// answer one of those two, and DestinationVerdict is where the answer lands.
+//
+// SCOPED TO THE HEADLINE VERDICT, DELIBERATELY. An earlier design ran to
+// forty-four columns and a second to sixty-seven, each argued from a standard,
+// and both were right about the facts and wrong about the artefact: a form
+// nobody finishes produces no verdict at all. What survives is platform
+// identity, six capability answers, three lists of evidence, the verdict, and
+// who said so. Everything else belongs in the digitisation plan document,
+// which is a document, and this is a register.
+//
+// NO YES/NO COLUMN EXCEPT ONE. A checkbox cannot say UNKNOWN, and most of this
+// list is filled in by a platform custodian BEFORE the assessment interview,
+// where "I do not know" is the most common honest answer. An unticked box and
+// a considered No render identically. So the six capability questions share
+// one capability_answer enum with Unknown first and defaulted, and the single
+// surviving boolean is FollowUpRequired, which the assessor owns and therefore
+// always knows.
+//
+// THE VERDICT IS TYPED BY A PERSON, not calculated. A calculated column is
+// read-only, so there would be nowhere to record "the answers say no, we
+// accept the risk with named configuration, and here is why" - which is the
+// assessor's actual job. It also could not be indexed, and every operational
+// view here filters on it.
+//
+// THREE COLUMNS HOLD MANY VALUES, and this is the first shipped family to use
+// the enum_name[] form. Which disposal-suspension triggers a platform honours,
+// which audit events it logs and which export routes it offers are genuinely
+// lists, and flattening them into prose destroys the cross-platform comparison
+// the register exists to produce. What that costs is real and is stated in
+// 20-configure/mapping.yaml beside every place it bites: no index, no default,
+// no unique, no colour, no formula may read one, and a view may only ask
+// includes / not_includes / is_null / is_not_null.
+//
+// NO COMMERCIAL PRODUCT IS NAMED, in the demo rows or anywhere else. A shipped
+// row saying "no bulk export, verdict: not a destination" beside a vendor name
+// would be a fabricated capability claim about somebody else's product,
+// pasted into every adopter tenant. The demo rows name generic roles.
+//
+// NO RECORD CONTENT, at any grain. This register holds platform metadata. The
+// note columns take CATEGORIES, never examples, because an example of a record
+// title in a health service is routinely a patient name. See
+// 50-govern/governance.md.
+// ============================================================================
+
+Project records_digitisation { database_type: 'SharePoint Online Lists' }
+
+// THE ANSWER SET, shared by all six capability questions.
+//
+// Unknown is FIRST and is the default, so an untouched row reads as unanswered
+// rather than as answered No. Partly is the answer this domain actually
+// produces: versions the documents but not the attachments; logs the events
+// but does not retain the log.
+Enum capability_answer {
+  "Unknown"
+  "No"
+  "Partly"
+  "Yes"
+}
+
+// Where the platform sits in the organisation. Edit these to the way your
+// service divides work; nothing in the build depends on the wording.
+Enum business_domain {
+  "Clinical"
+  "Quality and safety"
+  "People and culture"
+  "Finance and procurement"
+  "Corporate and executive"
+  "Supporting systems"
+}
+
+// A platform being decommissioned is not a destination for anything, whatever
+// else it scores, and a platform still being implemented cannot have been
+// assessed against what it will finally do. The default view filters Retired
+// away, which is how the register stays usable as it accumulates.
+Enum platform_lifecycle {
+  "Being implemented"
+  "In service"
+  "Under review"
+  "Decommissioning"
+  "Retired"
+}
+
+// THE HEADLINE VERDICT, built on the two lawful shapes rather than on a
+// score. "Manages retention and disposal in place" is the first shape.
+// "Interim only - export with metadata proven" is the second, and it says
+// interim because a platform that can only hand the records on is a staging
+// point rather than a home. "Suitable with named configuration" is the
+// answer that makes this register worth keeping: the platform can do it, and
+// somebody has to write down what has to be turned on first.
+Enum destination_verdict {
+  "Not assessed"
+  "Manages retention and disposal in place"
+  "Suitable with named configuration"
+  "Interim only - export with metadata proven"
+  "Not a destination"
+}
+
+// MULTI-VALUE. Disposal has to be suspendable on several independent grounds
+// and a platform commonly honours some and not others, so a single Yes/No
+// would average four different answers into one. "Legal hold" is deliberately
+// not the wording: it is narrower than the set.
+Enum disposal_suspension_trigger {
+  "Legal proceedings"
+  "Unfinalised access request"
+  "Unfinalised audit or investigation"
+  "Organisational freeze"
+}
+
+// MULTI-VALUE. "The platform has an audit log" is not a fact anybody can act
+// on. Which events reach it is, and Export and Delete are the two that decide
+// whether a disposal action can ever be evidenced.
+Enum audit_event {
+  "View"
+  "Create"
+  "Edit"
+  "Export"
+  "Delete"
+  "Permission change"
+}
+
+// MULTI-VALUE. A platform frequently has more than one route out and they are
+// not equivalent: a vendor-run extract is a purchase order and a lead time,
+// self-service is a Tuesday afternoon, and "one item at a time" is not an
+// export route at all for a collection of any size. An empty set is the
+// finding, and the "No bulk export route" view is built on it.
+Enum export_method {
+  "Vendor-run bulk extract"
+  "Self-service bulk export"
+  "Documented API extract"
+  "Report output only"
+  "One item at a time"
+}
+
+Table Platform {
+  Id                          int                          [pk, increment]
+  Title                       nvarchar                     [not null, note: 'What the platform is called here, as staff would say it. A generic name, not a vendor product name']
+  BusinessDomain              business_domain              [not null, note: 'Which part of the organisation this platform serves. It decides who has to be in the room for the assessment']
+  PlatformCustodian           person                       [note: 'The person here who answers for this platform day to day. They fill the six capability answers in before the assessment interview']
+  LifecycleStatus             platform_lifecycle           [not null, default: 'In service', note: 'What the platform itself is doing. A platform in Decommissioning is not a destination for anything, whatever else it scores']
+
+  // --- Can it keep a record ------------------------------------------------
+  // Six questions, one shared answer set, in the order an assessor asks them.
+  // Each one is a capability the disposal standard requires of a system that
+  // is going to hold records to their full retention.
+  RetentionAndDisposalInPlace capability_answer            [not null, default: 'Unknown', note: 'Can retention periods be applied in the platform itself, and can it dispose of records when they fall due? This is the first of the two lawful shapes']
+  DisposalIsEvidenced         capability_answer            [not null, default: 'Unknown', note: 'When something is disposed of, does the platform leave a record of what went, when, and under what authority? Disposal that cannot be evidenced cannot be defended']
+  DestructionIsComplete       capability_answer            [not null, default: 'Unknown', note: 'Does deletion actually destroy, including copies in backups, preservation stores and disaster recovery? Soft delete over seven years of backups is the commonest way a platform looks compliant and is not']
+  DisposalCanBeSuspended      capability_answer            [not null, default: 'Unknown', note: 'Can disposal be frozen over a defined set of records while a matter is open, and lifted afterwards? Record which grounds it honours in Suspension Triggers']
+  ExportWithMetadata          capability_answer            [not null, default: 'Unknown', note: 'If the records had to leave, would their metadata and audit history go with them? Export that drops the metadata is the second lawful shape failing. Bare files are not records']
+  OriginalDateIsPreserved     capability_answer            [not null, default: 'Unknown', note: 'Can the date the ORIGINAL record was created be stored separately from the date it was scanned or loaded? Most line-of-business systems stamp the capture date and have nowhere to put the other one']
+
+  // --- Evidence and method -------------------------------------------------
+  // The three multi-value columns. Each of them qualifies one of the answers
+  // above, and each is a list because the honest answer is a list.
+  SuspensionTriggers          disposal_suspension_trigger[] [note: 'Which grounds for freezing disposal this platform can actually honour. Tick every one it does. None ticked, with Disposal Can Be Suspended set to Yes, is the contradiction to chase']
+  AuditEventsLogged           audit_event[]                [note: 'Which events reach the audit log and stay there. Export and Delete are the two that decide whether a disposal action can ever be evidenced']
+  ExportMethods               export_method[]              [note: 'Every route the records could leave by. Leave it empty if there is genuinely none - an empty set is a finding, and a view is built on it']
+
+  // --- Verdict and follow-up -----------------------------------------------
+  DestinationVerdict          destination_verdict          [not null, default: 'Not assessed', note: 'The assessor answer, typed by a person. Nothing computes it: recording that the answers say no and the risk is accepted with named configuration is the whole job']
+  VerdictBasis                longtext                     [note: 'Why the verdict is what it is, in a few sentences: what was demonstrated, what was taken on trust, and what has to be configured. Categories of record only, never examples, and no patient or client identifiers']
+  FollowUpRequired            boolean                      [not null, default: false, note: 'Whether anything has to happen before this verdict can be relied on. The one Yes/No column here, because the assessor is the person who would know']
+  FollowUpAction              nvarchar                     [note: 'The single next action, in one line, with who owns it. If it needs a paragraph it needs a project, and the project belongs somewhere else']
+
+  // --- Assessment provenance -----------------------------------------------
+  // Without these the register is hearsay: a verdict with no author and no
+  // date cannot be re-opened, aged, or defended two years later.
+  AssessedBy                  person                       [note: 'Who made the call. Not the custodian who filled in the answers - the person who signed off the verdict']
+  AssessmentDate              date                         [note: 'The date the verdict was reached. A verdict older than the platform version it was made against is a verdict to redo']
+
+  // Exactly the columns a declared view filters on, and nothing else. Four of
+  // twenty slots. SharePoint cannot index a multi-value column at all
+  // (measured, with a control that stuck on a single-value Choice), so the one
+  // view that filters Export Methods is paired with Lifecycle Status, which
+  // serves the query on its own.
+  indexes {
+    LifecycleStatus
+    DestinationVerdict
+    BusinessDomain
+    FollowUpRequired
+  }
+
+  Note: 'One row per business platform. Whether a digitised record can be kept there: retention, disposal, suspension, audit and export, with a verdict.'
+}

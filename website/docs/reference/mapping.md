@@ -1750,8 +1750,25 @@ Value grammar:
   demo runs.
 - `{ demo_ref: key }`: lookup columns; resolves to the Id of the demo
   row created under that key.
+- A list of members: [multi-value
+  columns](dbml.md#multi-value-columns); see below.
 - Anything else: a literal, validated against the column type and enum
   membership.
+
+A multi-value column's literal is a list, and each element is validated
+against the enum backing the column exactly as a scalar Choice literal is.
+A scalar where a list is required is refused
+(`demo_multi_value_not_a_list`), and so is a member repeated within one
+value (`demo_multi_value_duplicate_member`), because nothing has measured
+what a repeat reads back as. The seeder writes the list as
+`{"__metadata": {"type": "Collection(Edm.String)"}, "results": [...]}`,
+the write shape measured as M3 by `test/manual/multi-value-probe.js` and
+recorded under run 3 on 2026-08-17.
+
+An empty list is accepted and leaves the column unset. It omits the field
+from the payload rather than writing `null`: M4 measured an unset
+multi-value column reading back `null` rather than `[]`, and omitting the
+field is the only route to that read-back anybody has measured.
 
 Every Title must start with `[DEMO]` (validated). The marker is the
 [teardown contract](../artifacts/demo-data.md). Only emitted with

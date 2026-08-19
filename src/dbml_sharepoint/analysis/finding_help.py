@@ -339,6 +339,18 @@ FINDING_HELP: dict[FindingCode, str] = {
         "A demo row's hyperlink object value is not `{url: <address>, "
         "description: <label>}` with `description` optional."
     ),
+    FindingCode.DEMO_MULTI_VALUE_DUPLICATE_MEMBER: (
+        "A demo row repeats a member within one multi-value value. The "
+        "write shape measured as M3 on 2026-08-17 is a collection of "
+        "choices, and nothing "
+        "has measured what a repeated member reads back as, so the row "
+        "is refused rather than seeded into an unmeasured state."
+    ),
+    FindingCode.DEMO_MULTI_VALUE_NOT_A_LIST: (
+        "A demo row writes a multi-value column with a scalar. The write "
+        "shape is a collection, so the value has to be authored as a "
+        "list. An empty list is accepted and leaves the column unset."
+    ),
     FindingCode.DEMO_OBJECT_VALUE_INVALID: (
         "A demo row's object value is not exactly `{demo_ref: <key>}`."
     ),
@@ -403,6 +415,13 @@ FINDING_HELP: dict[FindingCode, str] = {
     FindingCode.DUPLICATE_DISPLAY_TITLE: (
         "Two columns of one entity resolve to the same display title, "
         "making them indistinguishable on every form and view."
+    ),
+    FindingCode.DUPLICATE_ENUM_MEMBER: (
+        "One enum declares the same member twice. The members reach the "
+        "deploy body as an ordered `Choices` collection, and the field "
+        "reconciler compares that collection index by index, so a repeat "
+        "can leave the reconciler unable to converge. It applies to every "
+        "enum, not only the ones backing a multi-value column."
     ),
     FindingCode.DUPLICATE_ENUM_NAME: (
         "Two enums share a name."

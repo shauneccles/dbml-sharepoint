@@ -38,6 +38,16 @@ grammar):
   tolerance expiring) light up whenever it is demonstrated.
 - `demo_ref` links resolve to the Ids of rows created earlier in the
   same run, following list dependency order.
+- A list of enum members on a [multi-value
+  column](../reference/dbml.md#multi-value-columns) is written as
+  `{"__metadata": {"type": "Collection(Edm.String)"}, "results": [...]}`,
+  the write shape measured as M3 by `test/manual/multi-value-probe.js`
+  and recorded under run 3 on 2026-08-17. Every member is validated
+  against the enum, and a member repeated within one value is refused.
+  An empty list leaves the column unset by omitting the field from the
+  payload rather than writing `null`, since M4 measured an unset
+  multi-value column reading back `null` rather than `[]` and omission
+  is the only route to that read-back anybody has measured.
 
 ## Idempotence
 

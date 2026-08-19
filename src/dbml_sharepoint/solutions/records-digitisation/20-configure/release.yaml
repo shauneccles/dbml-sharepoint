@@ -1,0 +1,8 @@
+release: "1.0.0"
+date: "2026-08-18"
+deployer_version: "dbml-sharepoint/0.1.0"
+schema_version: "1.0.0"
+notes: |
+  Records digitisation platform capability assessment. Bump schema_version
+  when you change the DBML or mapping and redeploy. The stamp is how a live
+  site is traced back to the exact schema that provisioned it.

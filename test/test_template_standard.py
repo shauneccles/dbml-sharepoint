@@ -33,7 +33,7 @@ from typing import Any
 import pytest
 from _paths import SOLUTION_TEMPLATES
 
-from dbml_sharepoint.analysis.conditions import normalise
+from dbml_sharepoint.analysis.conditions import _NULL_INCLUSIVE_NEGATIVES, normalise
 from dbml_sharepoint.analysis.group_description import description_budget
 from dbml_sharepoint.analysis.icons import FLEET_ICONS
 from dbml_sharepoint.analysis.list_description import (
@@ -507,6 +507,23 @@ SECTION_BEATS: dict[tuple[str, str], dict[str, str]] = {
         "State the input": "Identify",
         "How they are involved": "Act",
     },
+    # Two consecutive Assess sections, which §1.2 permits and this form
+    # depends on. "Can it keep a record" is the six capability questions a
+    # custodian answers from memory before the assessment interview; "Evidence
+    # and method" is the three multi-value lists that qualify them, filled in
+    # with the assessor and in front of the platform. One heading over all
+    # nine is a wall of fields in front of somebody answering six questions.
+    #
+    # System holds the assessment provenance rather than a calculated column,
+    # and that is the beat it belongs to: who reached the verdict and when is
+    # what makes the row auditable, and it is the last thing anybody types.
+    ("records-digitisation", "Platform"): {
+        "The platform": "Identify",
+        "Can it keep a record": "Assess",
+        "Evidence and method": "Assess",
+        "Verdict and follow-up": "Govern",
+        "System": "System",
+    },
 }
 
 # §1.3. Deliberately WEAKER than the archetype table in the spec, which is a
@@ -526,10 +543,15 @@ WIDTH_SCALE: frozenset[int] = frozenset(range(100, 321, 10))
 REFERENCE_DATE = dt.date(2026, 7, 1)
 
 # The operators the demo-coverage evaluator implements. Anything else makes
-# the view UNEVALUABLE and is reported as a skip naming the view, never
-# silently treated as satisfied.
+# the view UNEVALUABLE, and the skip that follows retires the WHOLE template's
+# demo-satisfaction check rather than the one view, so a gap here is expensive.
+#
+# `includes`/`not_includes` are the multi-value pair. They are the only
+# comparison such a view can carry: `analysis/conditions.py` refuses `eq` on a
+# multi-value column and directs the author to them.
 SUPPORTED_OPS: frozenset[str] = frozenset({
     "eq", "neq", "lt", "leq", "gt", "geq", "in", "not_in", "is_null", "is_not_null",
+    "includes", "not_includes",
 })
 
 # §3.1, the lifecycle/severity assertion (the NARROW, defensible reading).
@@ -944,10 +966,7 @@ def test_every_formatted_column_is_exercised_by_a_demo_row(
                     continue
                 if loaded.mapping.is_retired(entity, source):
                     continue
-                seen = {
-                    str(row[source]) for row in rows
-                    if row.get(source) is not None
-                }
+                seen = _seen_values(rows, source)
                 if not (set(value_map) & seen):
                     unrendered.add(
                         f"{entity}.{source} (map keys {sorted(value_map)})",
@@ -1051,6 +1070,22 @@ def _is_ordered_subsequence(beats: list[str]) -> bool:
     return True
 
 
+def _seen_values(rows: list[dict[str, Any]], source: str) -> set[str]:
+    """Every value the demo rows give `source`, a list column's members flattened.
+
+    A multi-value column holds a list, and `str(["View", "Edit"])` is
+    `"['View', 'Edit']"`, which keys no map. Stringifying the list rather than
+    its members would report a correctly formatted column as one whose
+    formatter is never seen to render.
+    """
+    return {
+        str(member)
+        for row in rows
+        if row.get(source) is not None
+        for member in (row[source] if isinstance(row[source], list) else [row[source]])
+    }
+
+
 def _token_maps(column: str, spec: dict[str, Any]) -> list[tuple[str, dict[str, str]]]:
     """(source column, {member: token}) for a raw style spec's `map:` blocks."""
     maps: list[tuple[str, dict[str, str]]] = []
@@ -1108,16 +1143,28 @@ def _evaluate_leaf(leaf: Leaf, row: dict[str, Any], types: dict[str, str]) -> bo
     if column_type == "person" and leaf.value == "me":
         return None  # the current user is a deploy-time fact
     raw = row.get(leaf.field)
-    blank = raw is None or (isinstance(raw, str) and not raw.strip())
+    # `[]` counts as empty because the emitter omits an empty multi-value field
+    # from the payload and M4 measured that column reading back `null`.
+    blank = raw is None or raw == [] or (isinstance(raw, str) and not raw.strip())
     if leaf.op == "is_null":
         return blank
     if leaf.op == "is_not_null":
         return not blank
     if blank:
-        # Matches the grammar's own three-valued semantics (see the note in
-        # analysis/conditions.py): neq/not_in place the empty value outside
-        # the compared literal, every other comparison excludes it.
-        return leaf.op in ("neq", "not_in")
+        # Matches the grammar's own three-valued semantics (the
+        # _NULL_INCLUSIVE_NEGATIVES set in analysis/conditions.py): these three
+        # place the empty value outside the compared literal, and every other
+        # comparison excludes it. `not_includes` is there on probe C9,
+        # 2026-08-10, which returned the empty row.
+        return leaf.op in _NULL_INCLUSIVE_NEGATIVES
+    if leaf.op in ("includes", "not_includes"):
+        if not isinstance(raw, list):
+            # DEMO_MULTI_VALUE_NOT_A_LIST refuses a scalar on such a column, so
+            # this is the two readers having drifted, not an authored shape.
+            raise _UnevaluableError(f"{leaf.field}: {leaf.op} against a non-list")
+        members = raw
+        hit = any(_compare("eq", member, leaf.value) for member in members)
+        return hit if leaf.op == "includes" else not hit
     if leaf.op in ("in", "not_in"):
         if not isinstance(leaf.value, list):
             raise _UnevaluableError(f"{leaf.field}: {leaf.op} value is not a list")
@@ -1192,6 +1239,73 @@ def _as_number(value: Any) -> float | None:
         except ValueError:
             return None
     return None
+
+
+# === The evaluator's own tests ==============================================
+#
+# Every other test in this file sweeps the whole library, so a hole in the
+# evaluator shows up as a SKIP rather than as a failure. These are direct.
+
+_MULTI_VALUE_TYPES = {"Events": "audit_event[]"}
+
+
+def test_a_view_filtering_a_multi_value_column_is_evaluable() -> None:
+    """An unevaluable operator skips the WHOLE template, not one view.
+
+    So a single `includes` filter would silently retire every other view's
+    demo-satisfaction check in that family. `includes` and `not_includes` are the only comparisons
+    such a view can carry, because `analysis/conditions.py` refuses `eq` on a
+    multi-value column and directs the author here.
+    """
+    row = {"Events": ["View", "Edit"]}
+    assert _evaluate_leaf(Leaf("Events", "includes", "Edit"), row, _MULTI_VALUE_TYPES) is True
+    assert _evaluate_leaf(Leaf("Events", "includes", "Delete"), row, _MULTI_VALUE_TYPES) is False
+    assert _evaluate_leaf(Leaf("Events", "not_includes", "Delete"), row, _MULTI_VALUE_TYPES) is True
+    assert _evaluate_leaf(Leaf("Events", "not_includes", "Edit"), row, _MULTI_VALUE_TYPES) is False
+
+
+def test_a_scalar_value_under_a_multi_value_operator_is_unevaluable() -> None:
+    """The grammar refuses this shape, so the evaluator must not invent it.
+
+    `_check_arity` refuses `includes` on a single-value column and
+    `DEMO_MULTI_VALUE_NOT_A_LIST` refuses a scalar demo value on a
+    multi-value one, so a bare member reaching here means the two readers
+    have drifted. Guessing a one-member list would hide that.
+    """
+    with pytest.raises(_UnevaluableError):
+        _evaluate_leaf(Leaf("Events", "includes", "Edit"), {"Events": "Edit"}, _MULTI_VALUE_TYPES)
+
+
+def test_an_empty_multi_value_column_reads_as_null() -> None:
+    """`[]` is neither None nor a str, so `blank` missed it.
+
+    The emitter omits the field for an empty list and M4 measured that column
+    reading back `null`, so the evaluator has to agree with the payload.
+    """
+    row: dict[str, Any] = {"Events": []}
+    assert _evaluate_leaf(Leaf("Events", "is_null", None), row, _MULTI_VALUE_TYPES) is True
+    assert _evaluate_leaf(Leaf("Events", "is_not_null", None), row, _MULTI_VALUE_TYPES) is False
+
+
+def test_an_empty_multi_value_column_satisfies_not_includes() -> None:
+    """Probe C9, 2026-08-10: a bare `<Neq>` against a MultiChoice column
+    returned the rows without the member AND the empty row, which is why
+    `not_includes` is in `_NULL_INCLUSIVE_NEGATIVES` in `conditions.py`.
+    """
+    row: dict[str, Any] = {"Events": []}
+    assert _evaluate_leaf(Leaf("Events", "not_includes", "Edit"), row, _MULTI_VALUE_TYPES) is True
+    assert _evaluate_leaf(Leaf("Events", "includes", "Edit"), row, _MULTI_VALUE_TYPES) is False
+
+
+def test_a_formatted_multi_value_column_counts_as_exercised() -> None:
+    """`str(["View", "Edit"])` is `"['View', 'Edit']"` and matches no map key.
+
+    Without flattening, a formatted multi-value column reports as one whose
+    formatter no demo row is ever seen to render, which fails the sweep on
+    correct work.
+    """
+    rows: list[dict[str, Any]] = [{"Events": ["View", "Edit"]}, {"Events": "Delete"}, {}]
+    assert _seen_values(rows, "Events") == {"View", "Edit", "Delete"}
 
 
 # Entities deliberately outside the standard. EMPTY: templates/README.md
@@ -1432,12 +1546,19 @@ def test_the_worst_generated_all_items_is_six_of_twelve() -> None:
     RE-MEASURED 2026-08-12 across 32 templates / 57 entities, when
     raci-matrix's Involvement child list joined the roster: 2 -> 7, 3 -> 29,
     4 -> 19, 5 -> 1, 6 -> 1. Involvement lands at 4 (Activity, Party, Author,
-    Editor). The worst is unchanged and is still raci-matrix/Activity at 6."""
+    Editor). The worst is unchanged and is still raci-matrix/Activity at 6.
+
+    RE-MEASURED 2026-08-18 across 33 templates / 58 entities, when
+    records-digitisation's Platform register joined the roster: 2 -> 7,
+    3 -> 29, 4 -> 20, 5 -> 1, 6 -> 1. Platform lands at 4 (AssessedBy,
+    PlatformCustodian, Author, Editor). Its three multi-value columns cost
+    nothing: a Choice (multi-valued) is not a Lookup and carries no join. The
+    worst is unchanged and is still raci-matrix/Activity at 6."""
     from dbml_sharepoint.analysis.joins import all_items_joining_fields
 
     templates = _all_templates()
-    assert len(templates) == 32, (
-        f"{len(templates)} templates discovered, not the 32 this survey was "
+    assert len(templates) == 33, (
+        f"{len(templates)} templates discovered, not the 33 this survey was "
         f"measured against. A template appeared or disappeared from the "
         f"roster. Re-measure the distribution and the worst count below "
         f"before trusting either."
@@ -1909,8 +2030,8 @@ def test_no_two_templates_declare_the_same_entity_name() -> None:
     """Unprefixed list names must stay unique across the shipped families.
 
     The prefix is a governance device -- you register yours so nobody else
-    takes it -- and it is on its way out. MEASURED 2026-08-12: 57 entity
-    names across 32 families, zero duplicated, so several families can
+    takes it -- and it is on its way out. RE-MEASURED 2026-08-18: 58 entity
+    names across 33 families, zero duplicated, so several families can
     already share one site with no prefix at all.
 
     That is only true while it stays true. Two families both declaring
@@ -1918,8 +2039,8 @@ def test_no_two_templates_declare_the_same_entity_name() -> None:
     nothing else in the build would notice: each family validates alone.
     """
     solutions = available_solutions()
-    assert len(solutions) == 32, (
-        f"{len(solutions)} templates discovered, not the 32 this collision "
+    assert len(solutions) == 33, (
+        f"{len(solutions)} templates discovered, not the 33 this collision "
         "sweep was measured against -- re-verify the invariant before "
         "trusting an empty collision set."
     )
@@ -1927,8 +2048,8 @@ def test_no_two_templates_declare_the_same_entity_name() -> None:
     for solution in solutions:
         for entity in solution.lists:
             owners.setdefault(entity, []).append(solution.id)
-    assert len(owners) == 57, (
-        f"{len(owners)} unique entity names found, not the 57 this collision "
+    assert len(owners) == 58, (
+        f"{len(owners)} unique entity names found, not the 58 this collision "
         "sweep was measured against -- re-verify the invariant before "
         "trusting an empty collision set."
     )

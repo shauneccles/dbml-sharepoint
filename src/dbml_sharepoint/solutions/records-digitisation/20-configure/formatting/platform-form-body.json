@@ -1,0 +1,24 @@
+{
+  "sections": [
+    {
+      "displayname": "The platform",
+      "fields": ["Title", "BusinessDomain", "PlatformCustodian", "LifecycleStatus"]
+    },
+    {
+      "displayname": "Can it keep a record",
+      "fields": ["RetentionAndDisposalInPlace", "DisposalIsEvidenced", "DestructionIsComplete", "DisposalCanBeSuspended", "ExportWithMetadata", "OriginalDateIsPreserved"]
+    },
+    {
+      "displayname": "Evidence and method",
+      "fields": ["SuspensionTriggers", "AuditEventsLogged", "ExportMethods"]
+    },
+    {
+      "displayname": "Verdict and follow-up",
+      "fields": ["DestinationVerdict", "VerdictBasis", "FollowUpRequired", "FollowUpAction"]
+    },
+    {
+      "displayname": "System",
+      "fields": ["AssessedBy", "AssessmentDate"]
+    }
+  ]
+}
