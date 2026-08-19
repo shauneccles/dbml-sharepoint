@@ -1293,7 +1293,7 @@
   "views": [
     {
       "aggregations": "",
-      "caml_query": "\u003cWhere\u003e\u003cOr\u003e\u003cIsNull\u003e\u003cFieldRef Name=\"Status\"/\u003e\u003c/IsNull\u003e\u003cNeq\u003e\u003cFieldRef Name=\"Status\"/\u003e\u003cValue Type=\"Text\"\u003eClosed\u003c/Value\u003e\u003c/Neq\u003e\u003c/Or\u003e\u003c/Where\u003e\u003cOrderBy\u003e\u003cFieldRef Name=\"SortOrder\"/\u003e\u003c/OrderBy\u003e",
+      "caml_query": "\u003cWhere\u003e\u003cAnd\u003e\u003cOr\u003e\u003cIsNull\u003e\u003cFieldRef Name=\"Status\"/\u003e\u003c/IsNull\u003e\u003cNeq\u003e\u003cFieldRef Name=\"Status\"/\u003e\u003cValue Type=\"Text\"\u003eClosed\u003c/Value\u003e\u003c/Neq\u003e\u003c/Or\u003e\u003cOr\u003e\u003cIsNotNull\u003e\u003cFieldRef Name=\"ID\"/\u003e\u003c/IsNotNull\u003e\u003cIsNull\u003e\u003cFieldRef Name=\"ID\"/\u003e\u003c/IsNull\u003e\u003c/Or\u003e\u003c/And\u003e\u003c/Where\u003e\u003cOrderBy\u003e\u003cFieldRef Name=\"SortOrder\"/\u003e\u003c/OrderBy\u003e",
       "formatting": "{\"additionalRowClass\":\"=if([$Status] == \u0027Closed\u0027, \u0027sp-css-backgroundColor-BgLightGray\u0027, \u0027\u0027)\"}",
       "hidden": false,
       "list": "APP_Project",
@@ -1357,7 +1357,7 @@
     },
     {
       "aggregations": "",
-      "caml_query": "\u003cGroupBy Collapse=\"FALSE\"\u003e\u003cFieldRef Name=\"Project\"/\u003e\u003c/GroupBy\u003e\u003cWhere\u003e\u003cLeq\u003e\u003cFieldRef Name=\"DueDate\"/\u003e\u003cValue Type=\"DateTime\"\u003e\u003cToday OffsetDays=\"30\"/\u003e\u003c/Value\u003e\u003c/Leq\u003e\u003c/Where\u003e\u003cOrderBy\u003e\u003cFieldRef Name=\"DueDate\"/\u003e\u003c/OrderBy\u003e",
+      "caml_query": "\u003cGroupBy Collapse=\"FALSE\"\u003e\u003cFieldRef Name=\"Project\"/\u003e\u003c/GroupBy\u003e\u003cWhere\u003e\u003cAnd\u003e\u003cLeq\u003e\u003cFieldRef Name=\"DueDate\"/\u003e\u003cValue Type=\"DateTime\"\u003e\u003cToday OffsetDays=\"30\"/\u003e\u003c/Value\u003e\u003c/Leq\u003e\u003cOr\u003e\u003cIsNotNull\u003e\u003cFieldRef Name=\"ID\"/\u003e\u003c/IsNotNull\u003e\u003cIsNull\u003e\u003cFieldRef Name=\"ID\"/\u003e\u003c/IsNull\u003e\u003c/Or\u003e\u003c/And\u003e\u003c/Where\u003e\u003cOrderBy\u003e\u003cFieldRef Name=\"DueDate\"/\u003e\u003c/OrderBy\u003e",
       "formatting": null,
       "hidden": false,
       "list": "APP_Task",
@@ -3896,6 +3896,140 @@
   // writes to the same list race into save conflicts; different lists are
   // independent, so their lanes run concurrently.
   await mapLanes(SCHEMA.views, (view) => view.list, deployView, 4);
+
+  // ---- Confirm the editor still refuses the guard -----------------------
+  // The readback above proves each stored ViewQuery is the declared one. It
+  // cannot show whether this tenant's editor still refuses that shape, which
+  // is a property of SharePoint's UI on the day of the deploy. See #267.
+  //
+  // One fetch covers every view, because the guard is identical across them
+  // and each view's stored query is already verified above. The page measured
+  // 501,773 characters on 2026-08-17, so fetching one per view would pull
+  // roughly 96MB over a 192-view deploy.
+  //
+  // The editor's own form controls, as the `name` ATTRIBUTE the probe read.
+  // A bare substring would also match the word in page script, and would then
+  // report a protected view as editable and abort the run.
+  // Measured 2026-08-17, view-edit-page-probe.js C1 and C2: both are present
+  // on an editable page and on an unfiltered one, and absent from a refused
+  // one. Two of them because C2's result is that they agree; disagreement is
+  // the signal that the markup moved.
+  const EDITOR_CONTROLS = ['name="FieldPicker1"', 'name="OperatorPicker1"'];
+  // C6: a request for a view that does not exist answers HTTP 200 on this URL
+  // with no editor controls, and with `ViewEdit` and `ctl00` present and
+  // `ViewFilter` absent. So this is the only one of the three that can gate
+  // an absence test.
+  const EDITOR_PAGE_SENTINEL = 'ViewFilter';
+
+  // Warned rather than failed, per the ruling of 2026-08-17: a check that
+  // could not read the page is not evidence the view is unprotected. It is
+  // recorded on the summary all the same, so a run cannot report a clean
+  // deployment while this went unanswered.
+  const unconfirmed = (why) => {
+    log('WARN', `[Phase 3.1] Could not confirm the filter editor refuses the`
+      + ` emitted shape (${why}). The views themselves are verified.`);
+    summary.warnings = summary.warnings || [];
+    summary.warnings.push({ phase: '3.1', check: 'filter-editor-refusal', why });
+  };
+
+  async function confirmEditorRefusesTheGuard() {
+    // A view whose AUTHORED filter is a single leaf, so only the guard can
+    // make the editor refuse it. The first filtered view will often be one
+    // whose own tree already refuses (30 of the 192 shipped views did
+    // before this change), and confirming on that one would establish
+    // nothing about the guard. Falls back to any filtered view, which is
+    // still better than not asking.
+    const filtered = SCHEMA.views.filter((v) => (v.caml_query || '').includes('<Where>'));
+    const guardOnly = (v) => {
+      const body = (v.caml_query.match(/<Where>([\s\S]*)<\/Where>/) || [])[1] || '';
+      return body.startsWith('<And>') && body.indexOf('<Or>') === body.lastIndexOf('<Or>');
+    };
+    const guarded = filtered.find(guardOnly) || filtered[0];
+    if (!guarded) {
+      log('INFO', `[Phase 3.1] No filtered view declared, so nothing to confirm.`);
+      return;
+    }
+    const listPath = `web/lists/getbytitle('${odataName(guarded.list)}')`;
+    // The cached enumeration was taken BEFORE this run's writes, so it holds
+    // no view this run created and a rename still under its old title. Drop
+    // the entry and let listViewShapes read once more: one enumeration per
+    // list is this file's documented cheap path, and views/getbytitle would
+    // paint the console red on a miss for operators to read as a failure.
+    delete viewShapesByList[listPath];
+
+    let listId = null;
+    let viewId = null;
+    let why = null;
+    try {
+      const listResp = await fetchWithRetry(apiUrl(`${listPath}?$select=Id`), {
+        headers: { 'Accept': 'application/json;odata=verbose' },
+      });
+      if (listResp.ok) {
+        listId = ((await listResp.json()) || {}).d.Id;
+      } else {
+        why = `list read HTTP ${listResp.status}: ${spError(await listResp.text())}`;
+      }
+      const shape = (await listViewShapes(listPath)).find((s) => s.Title === guarded.title);
+      if (shape) {
+        viewId = shape.Id;
+      } else if (why === null) {
+        why = `'${guarded.title}' is not among the list's views after deployment`;
+      }
+    } catch (err) {
+      // Surfaced, not swallowed. A discarded message here leaves an operator
+      // with "could not identify" and nothing to act on.
+      why = (err && err.message) || String(err);
+    }
+    if (!listId || !viewId) {
+      unconfirmed(`could not identify '${guarded.title}': ${why}`);
+      return;
+    }
+
+    const pageUrl = `${WEB}/_layouts/15/ViewEdit.aspx?List=${encodeURIComponent(`{${listId}}`)}`
+      + `&View=${encodeURIComponent(`{${viewId}}`)}`;
+    let res;
+    let body;
+    try {
+      // Through fetchWithRetry like every other request in this script: the
+      // settings page is throttled the same way, and a bare fetch would turn
+      // a 429 into "could not confirm" on a run that only needed to wait.
+      res = await fetchWithRetry(pageUrl, { credentials: 'same-origin' });
+      body = await res.text();
+    } catch (err) {
+      unconfirmed(`could not read the view settings page: ${err.message}`);
+      return;
+    }
+    // A login or modern-settings redirect answers 200, so res.ok alone would
+    // hand the wrong HTML to the test below.
+    const landed = res.ok && !res.redirected && res.url.includes('ViewEdit.aspx');
+    // A response cut short after the sentinel and before the controls has
+    // neither, and absence is the whole predicate, so require the document
+    // to have ended. view-edit-page-probe.js C6 measured a page that is not
+    // a view; it did not measure a truncated one.
+    const complete = body.trimEnd().endsWith('</html>');
+    if (!landed || !complete || !body.includes(EDITOR_PAGE_SENTINEL)) {
+      unconfirmed(`HTTP ${res.status}, redirected=${res.redirected}, `
+        + `complete=${complete}, sentinel=${body.includes(EDITOR_PAGE_SENTINEL)}`);
+      return;
+    }
+    const present = EDITOR_CONTROLS.filter((control) => body.includes(control));
+    if (present.length > 0) {
+      // The page arrived and the editor is on it, so the filter is editable
+      // and an operator can truncate it. The check answered, so this fails
+      // the run; the warnings above are the cases where it could not answer.
+      const message = `view '${guarded.title}' on '${guarded.list}' is still editable in the filter`
+        + ` editor (${present.join(', ')}), so its filter can be truncated by an operator`
+        + ' pressing Save';
+      log('ERROR', `[Phase 3.1] ${message}`);
+      summary.errors.push({
+        phase: '3.1', list: guarded.list, view: guarded.title, error: message,
+      });
+      return;
+    }
+    log('INFO', `[Phase 3.1] Filter editor refuses '${guarded.title}', so declared`
+      + ' filters cannot be truncated from view settings.');
+  }
+  await confirmEditorRefusesTheGuard();
   markPhase('Phase 3.2: form formatting');
   // === Phase 3.2: form formatting ===
   // Declared list-form layouts (header/body/footer JSON) live on the list's

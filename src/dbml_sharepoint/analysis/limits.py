@@ -267,6 +267,23 @@ INDEX_WARN_AT = 18
 #: reason to track.
 MAX_VIEW_ROW_LIMIT = 5000
 
+# ------------------------------------------------------- view filter editor
+
+#: How many comparisons the classic filter editor can show. It writes back only
+#: what it rendered, so a stored filter longer than this is truncated when an
+#: operator opens view settings and presses Save.
+#:
+#: NOT a CAML limit, which is why it is not named for one: a stored filter of
+#: forty disjuncts parses and evaluates correctly. Only the editor is capped.
+#:
+#: Measured 2026-08-17 by two routes: `caml-chain-depth-probe.js` U2 watched a
+#: save rewrite a forty-condition filter to ten, and `view-edit-page-probe.js`
+#: C4 read ten `FieldPicker` and ten `OperatorPicker` controls out of the page
+#: markup. Microsoft documents no such ceiling (Learn, checked 2026-08-17).
+#: Measured on one tenant. A second tenant would settle it; another run
+#: would not.
+MAX_FILTER_EDITOR_CONDITIONS = 10
+
 #: SharePoint Online's list view threshold. Microsoft states it CANNOT be
 #: changed for SharePoint, and that the effective number "is not always 5,000"
 #: because it varies with the site and database activity, so this is the

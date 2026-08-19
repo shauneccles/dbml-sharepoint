@@ -33,6 +33,7 @@ from dbml_sharepoint.analysis.limits import (
     INDEX_WARN_AT,
     LIST_VIEW_THRESHOLD,
     MAX_DISPLAY_TITLE,
+    MAX_FILTER_EDITOR_CONDITIONS,
     MAX_GROUP_DESCRIPTION,
     MAX_INTERNAL_NAME,
     MAX_LIST_INDEXES,
@@ -1138,6 +1139,14 @@ FINDING_HELP: dict[FindingCode, str] = {
     FindingCode.WATCHED_COLUMN_NOT_RENDERED: (
         "A `watched_lists:` entry names a column the deploy never "
         "creates."
+    ),
+    FindingCode.VIEW_FILTER_EXCEEDS_EDITOR_CAPACITY: (
+        f"A view's `where` renders more than {MAX_FILTER_EDITOR_CONDITIONS} "
+        "comparisons, which is more than the classic filter editor can show. "
+        "The emitted filter is protected, so this is survivable; if that "
+        "protection is ever removed or fails to take, the view loses the "
+        "comparisons past the ceiling the first time somebody opens its "
+        "settings. A negated clause renders two comparisons, not one."
     ),
     FindingCode.VIEW_FORMATTER_XML_METACHARACTER: (
         "A view formatter contains a raw `&` or `<`. A view's CustomFormatter "

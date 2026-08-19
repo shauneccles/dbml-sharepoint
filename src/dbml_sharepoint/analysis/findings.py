@@ -245,6 +245,9 @@ class FindingCode(StrEnum):
     UNKNOWN_RETENTION_POLICY = "unknown_retention_policy", "error"
     UNMAPPED_SCHEMA_TABLE = "unmapped_schema_table", "error"
     UNSUPPORTED_BASE_TEMPLATE = "unsupported_base_template", "error"
+    # Warning severity: #267 already protects the emitted filter, so an
+    # oversized filter is survivable rather than fatal.
+    VIEW_FILTER_EXCEEDS_EDITOR_CAPACITY = "view_filter_exceeds_editor_capacity", "warning"
     WATCHED_COLUMN_NOT_RENDERED = "watched_column_not_rendered", "error"
     # A view's CustomFormatter is stored in the view schema XML, so a bare `&`
     # in it opens an entity reference and makes SharePoint's own document

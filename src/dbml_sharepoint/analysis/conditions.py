@@ -231,6 +231,19 @@ CAML = "caml"
 EXPRESSION = "expression"
 VALIDATION = "validation"
 
+# Conjoined onto a VIEW's filter so the classic filter editor refuses to open
+# it, which is what stops an operator truncating the filter. See #267 and
+# MAX_FILTER_EDITOR_CONDITIONS.
+# Measured 2026-08-17: the editor refuses this shape (caml-chain-depth-probe.js
+# W2, W4, T2), and the two halves return every row when asked alone, so
+# conjoining them removes nothing (T3, 41 of 41; view-edit-page-probe.js S2).
+CAML_VIEW_FILTER_GUARD = (
+    "<Or>"
+    '<IsNotNull><FieldRef Name="ID"/></IsNotNull>'
+    '<IsNull><FieldRef Name="ID"/></IsNull>'
+    "</Or>"
+)
+
 _CAML_OP_TAGS: dict[str, str] = {
     "eq": "Eq", "neq": "Neq", "lt": "Lt", "leq": "Leq", "gt": "Gt", "geq": "Geq",
     "is_null": "IsNull", "is_not_null": "IsNotNull",
@@ -1056,6 +1069,37 @@ def _boolean(value: object, at: Location, target: str) -> bool:
 def to_caml(condition: Condition, column_types: dict[str, str]) -> str:
     """Render to a CAML `<Where>` body."""
     return _render(normalise(condition), column_types, CAML, _CONDITIONS_ROOT)
+
+
+def to_caml_protected(condition: Condition, column_types: dict[str, str]) -> str:
+    """Render a VIEW's `<Where>` body in the shape the filter editor refuses.
+
+    A separate function rather than a `protected` flag on `to_caml`, because
+    `to_caml` is an entry in `_RENDERERS` and is dispatched there as
+    `(condition, types)` to decide what a target can express. A required flag
+    would break that registry, and a defaulted one would let a future view
+    path emit an unguarded filter with nothing to say so.
+
+    The editor refuses a filter whose right child is a group, and a view it
+    cannot open it cannot truncate (measured 2026-08-17,
+    caml-chain-depth-probe.js W2, W4, T2).
+    """
+    return f"<And>{to_caml(condition, column_types)}{CAML_VIEW_FILTER_GUARD}</And>"
+
+
+def caml_condition_count(condition: Condition, column_types: dict[str, str]) -> int:
+    """How many comparisons the rendered CAML presents to the filter editor.
+
+    Not the tree's leaf count. `neq` and `not_includes` each render an
+    `<IsNull>` arm beside the comparison, and `not_in` renders one for the
+    whole group, so six authored `neq` clauses render twelve comparisons. The
+    editor shows a row per comparison, so that larger number is the one an
+    author is warned about.
+
+    Counted on the UNGUARDED form: the guard adds two comparisons of its own
+    and is not something the author wrote.
+    """
+    return to_caml(condition, column_types).count("<FieldRef")
 
 
 def to_expression(condition: Condition, column_types: dict[str, str]) -> str:

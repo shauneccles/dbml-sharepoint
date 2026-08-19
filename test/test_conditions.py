@@ -10,6 +10,7 @@ from _paths import MANUAL
 from dbml_sharepoint.analysis import conditions
 from dbml_sharepoint.analysis.conditions import (
     CAML,
+    CAML_VIEW_FILTER_GUARD,
     CAPABILITIES,
     EXPRESSION,
     MAX_DEPTH,
@@ -17,12 +18,14 @@ from dbml_sharepoint.analysis.conditions import (
     NEGATION,
     SYSTEM_COLUMN_TYPES,
     VALIDATION,
+    caml_condition_count,
     condition_fields,
     condition_findings,
     describe,
     measure_tree,
     normalise,
     to_caml,
+    to_caml_protected,
     to_expression,
     to_validation,
     validate_condition,
@@ -2193,3 +2196,114 @@ def test_membership_describes_itself_in_the_manifest() -> None:
     word the mapping used rather than the `<Eq>` it becomes -- which on this
     column would read as equality and mean something else."""
     assert describe(Leaf("Events", "includes", "View")) == "Events includes 'View'"
+
+
+def test_a_view_filter_is_wrapped_so_the_editor_refuses_it() -> None:
+    """The emitted <Where> body must end with a group in the RIGHT child.
+
+    Measured 2026-08-17 (caml-chain-depth-probe.js W2, W4, T2): the filter
+    editor refuses a filter whose right child is a non-leaf, and a view it
+    will not open is one an operator cannot truncate by pressing Save.
+    """
+    condition = parse_condition([{"field": "Status", "op": "eq", "value": "Open"}], "ctx")
+    assert to_caml_protected(condition, {"Status": "Text"}) == (
+        "<And>"
+        '<Eq><FieldRef Name="Status"/><Value Type="Text">Open</Value></Eq>'
+        f"{CAML_VIEW_FILTER_GUARD}"
+        "</And>"
+    )
+
+
+def test_the_guard_is_the_last_child_whatever_the_filter_already_was() -> None:
+    """A filter that already contains a group still gets the guard last.
+
+    30 of the 192 shipped views were protected before this change only by
+    which clause rendered last, which nothing held in place.
+    """
+    condition = parse_condition(
+        [
+            {"field": "Status", "op": "in", "value": ["Open", "Closed"]},
+            {"field": "Owner", "op": "eq", "value": "me"},
+        ],
+        "ctx",
+    )
+    rendered = to_caml_protected(condition, {"Status": "Text", "Owner": "Text"})
+    assert rendered.startswith("<And>")
+    assert rendered.endswith(f"{CAML_VIEW_FILTER_GUARD}</And>")
+
+
+def test_the_guard_does_not_alter_the_authored_filter() -> None:
+    """The guard is additive. It must not alter what the author declared.
+
+    Asserted against a literal rather than against `to_caml`: comparing the
+    two renderers compares the function to itself, so breaking both together
+    leaves it green.
+    """
+    condition = parse_condition([{"field": "Status", "op": "eq", "value": "Open"}], "ctx")
+    rendered = to_caml_protected(condition, {"Status": "Text"})
+    inner = rendered.removeprefix("<And>").removesuffix(
+        f"{CAML_VIEW_FILTER_GUARD}</And>",
+    )
+    assert inner == '<Eq><FieldRef Name="Status"/><Value Type="Text">Open</Value></Eq>'
+
+
+def test_to_caml_is_unchanged_for_its_other_callers() -> None:
+    """The grammar's own capability oracle must see no guard.
+
+    `to_caml` is the CAML entry in `_RENDERERS`, dispatched per leaf to decide
+    what a target can express. A guard there would put a view-level construct
+    into that answer. Index analysis is not among its callers: it works on the
+    tree, via `_index_covered(normalise(...))`.
+    """
+    condition = parse_condition([{"field": "Status", "op": "eq", "value": "Open"}], "ctx")
+    assert CAML_VIEW_FILTER_GUARD not in to_caml(condition, {"Status": "Text"})
+
+
+def test_a_negation_renders_two_comparisons_not_one() -> None:
+    """`caml_condition_count` counts comparisons, and `neq` renders two.
+
+    CAML has no bare `<Not>`, so `neq` renders `<Or><IsNull><Neq></Or>` and
+    the editor shows a row for each. An author writing six `neq` clauses is
+    warned at twelve, and that is the number they will see rather than the
+    six they wrote.
+    """
+    types = {"Status": "Text"}
+    assert caml_condition_count(
+        parse_condition([{"field": "Status", "op": "eq", "value": "Open"}], "ctx"), types,
+    ) == 1
+    assert caml_condition_count(
+        parse_condition([{"field": "Status", "op": "neq", "value": "Open"}], "ctx"), types,
+    ) == 2
+    assert caml_condition_count(
+        parse_condition(
+            [{"field": "Status", "op": "in", "value": ["a", "b", "c"]}], "ctx",
+        ), types,
+    ) == 3
+
+
+def test_the_count_ignores_the_guard_the_author_did_not_write() -> None:
+    """Counted on the unguarded form, so the guard's two do not inflate it."""
+    condition = parse_condition([{"field": "Status", "op": "eq", "value": "Open"}], "ctx")
+    assert caml_condition_count(condition, {"Status": "Text"}) == 1
+    assert to_caml_protected(condition, {"Status": "Text"}).count("<FieldRef") == 3
+
+
+def test_the_guard_is_the_construct_that_was_measured() -> None:
+    """The guard's TEXT, not merely its position.
+
+    Every other test here interpolates `CAML_VIEW_FILTER_GUARD`, so a guard
+    changed to some other group keeps them all green and fails only the
+    golden fixture, whose message asks the reader to regenerate it. A guard
+    of `And[IsNull(ID), IsNull(ID)]` would match no rows and empty every
+    filtered view in every family.
+
+    This is the construct measured on 2026-08-17: refused by the editor
+    (caml-chain-depth-probe.js W2, W4, T2) and matching every row when asked
+    alone (T3, 41 of 41; view-edit-page-probe.js S2).
+    """
+    assert CAML_VIEW_FILTER_GUARD == (
+        "<Or>"
+        '<IsNotNull><FieldRef Name="ID"/></IsNotNull>'
+        '<IsNull><FieldRef Name="ID"/></IsNull>'
+        "</Or>"
+    )

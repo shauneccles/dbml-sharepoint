@@ -195,7 +195,11 @@ def generate_manifest(
                 continue
             parts: list[str] = []
             if declared.where is not None:
+                # The emitted filter carries a guard the operator cannot see
+                # in this line, and its consequence is theirs to live with:
+                # view settings will not open the filter at all. #267.
                 parts.append(f"filter: {describe(declared.where)}")
+                parts.append("filter not editable in view settings")
             if declared.sort:
                 parts.append("sort: " + ", ".join(
                     f"{entry.field} {entry.direction}" for entry in declared.sort

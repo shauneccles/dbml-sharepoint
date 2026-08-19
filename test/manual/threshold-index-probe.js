@@ -21,6 +21,76 @@
  * prevent exceeding the threshold, and _LOOKUP_FIELD_TYPES already acts on
  * that, but on documentation alone.
  *
+ * THE GUARD ROWS, added 2026-08-17 for #272. Every view this tool emits now
+ * carries a conjunct that makes the filter editor refuse to open it, so an
+ * operator cannot silently truncate a long filter by pressing Save:
+ *
+ *     <And>{the declared filter}<Or><IsNotNull ID/><IsNull ID/></Or></And>
+ *
+ * That the conjunct removes no ROWS is measured (caml-chain-depth-probe.js
+ * T3, 41 of 41; view-edit-page-probe.js S2). Whether it changes what
+ * SharePoint will SERVE past the list view threshold is a different
+ * question, and both of those fixtures are far below it: 41 rows and 3.
+ *
+ * It matters because the conjunct is on ID, which is not the declared
+ * filter's column. If adding it changes which predicate the query is
+ * planned against, a view that worked at 6,000 rows begins returning a
+ * partial answer or none, on the largest lists, and the build cannot see
+ * it. `ID` being indexed by default is the reason to expect no change; it
+ * is a reason rather than a measurement, which is what these rows fix.
+ *
+ * RUN OF 2026-08-17, revision 39c97f15, at 5,614 rows. It did NOT settle the
+ * question, and an earlier version of this paragraph said it had.
+ *
+ *   GRDIDX and GRDNUL each returned 56 rows guarded and 56 unguarded. 56 is
+ *   the complete expected count at this size, so both halves of both pairs
+ *   answered fully and neither came near the threshold. That measures the
+ *   conjunct on queries nothing was throttling. It says nothing about the
+ *   throttled case, which is the question this section opens with.
+ *
+ *   GRDONLY returned HTTP 200 holding exactly 5,000 of 5,614. That was read
+ *   as the threshold being enforced, and it does not establish it: 5,000 is
+ *   also the server's own page ceiling, so the round number is the same
+ *   artefact class as the round 200 this probe had already refused to read
+ *   one run earlier. Microsoft documents threshold enforcement as an error,
+ *   and CMPUNI recorded it as HTTP 500 SPQueryThrottledException. An HTTP 200
+ *   carrying 5,000 rows is consistent with either.
+ *
+ *   GRDUNI is void. TWINCK read Bucket 56 against Shadow 50, so the twins
+ *   differ by six rows and no longer differ only in the index. That is a seed
+ *   fault. GRDUNI is the row that would have measured the throttled case, so
+ *   the question stays open until the seed is reconciled.
+ *
+ * WHAT SETTLES IT IS A RENDERED VIEW, not a row count. Every REST surface
+ * here pages at 5,000, so an answer of 5,000 rows is a page ceiling and a
+ * threshold breach at once and no count can separate them. A view either
+ * lists its rows or shows the list view threshold message, and those look
+ * nothing alike.
+ *
+ * VWIDX against VWGRD is the question, and it needs no seed reconciled: the
+ * same column and value, differing only in the conjunct. VWGRD failing where
+ * VWIDX renders is the #272 hazard on the surface that ships.
+ *
+ * VWUNI against VWUGD is the control. A selective filter on an unindexed
+ * column must scan the whole list, so VWUNI has to show the threshold
+ * message; if it renders, nothing here is being throttled and VWIDX
+ * rendering means nothing. TWINCK's seed fault does not reach this pair,
+ * which asks whether the view loads rather than how many rows match.
+ *
+ * GRDIDX and GRDNUL are the measurement. Each sends the filter twice,
+ * unguarded then guarded, seconds apart on the same list, and compares the
+ * two. That is why they sit OUTSIDE the checkpoint gate the rest of this file
+ * uses: they need the list to be past the threshold and nothing more. An
+ * absolute expected count would have made them unreadable on 2026-08-17,
+ * when the fixture held 5,614 rows of the 6,000 that were loaded; a
+ * comparison is readable, because both halves see whatever the list holds. GRDUNI and GRDONLY
+ * are the controls that stop a green pair being read as good news. GRDUNI
+ * guards the UNINDEXED twin, which CMPUNI establishes is refused at this
+ * size; if guarding it makes it SERVED, the conjunct is changing plan
+ * selection and the whole comparison is suspect. GRDONLY sends the guard
+ * with no filter at all, matching every row in the list, and must be
+ * refused for the same reason.
+ *
  * WHY A NEW FIXTURE: native-index-probe.js ran on 2026-07-30 and established
  * none of it. Its metadata half is void (SP.Field.Indexed read false for ID
  * itself), and its behavioural half never ran, because the site's largest
@@ -47,6 +117,10 @@
  *   CMPUNI  OData comparison, UNINDEXED twin      (negative control)
  *   NULIDX  OData null test, INDEXED DateTime
  *   CMPCAM  CAML  comparison, INDEXED Text
+ *   GRDIDX  CAML  comparison, INDEXED Text, GUARDED   (#272)
+ *   GRDNUL  CAML  <IsNull>, INDEXED DateTime, GUARDED (#272)
+ *   GRDUNI  CAML  comparison, UNINDEXED twin, GUARDED (#272 negative control)
+ *   GRDONLY CAML  the guard ALONE, matching every row (#272 negative control)
  *   NULCAM  CAML  <IsNull>, INDEXED DateTime      (the question as _views.py asks it)
  *   PERSID  OData comparison, INDEXED Person
  *   LOOKID  OData comparison, INDEXED Lookup
@@ -119,7 +193,16 @@
  *   positive control (an indexed Text comparison matching 60 of 6,000) was
  *   SERVED. The negative control (the same comparison on Shadow, byte-
  *   identical data, no index) was REFUSED, HTTP 500
- *   SPQueryThrottledException. Shadow was never auto-indexed at any size.
+ *   SPQueryThrottledException.
+ *
+ *   THAT LAST SENTENCE USED TO READ "Shadow was never auto-indexed at any
+ *   size", and the run of 2026-08-17 falsified it: Shadow came back
+ *   Indexed=true, AutoIndexed=true, so SharePoint had indexed it on its
+ *   own between runs. The negative control expires when that happens, and
+ *   with it every indexed-versus-unindexed comparison in this file. IDXCLR
+ *   now tries to clear the flag before anything is measured and says
+ *   whether the clear stuck. Treat "not auto-indexed" as a per-run
+ *   observation rather than a property of the column.
  *
  *   ANSWERED: a CAML <IsNull> on an INDEXED column IS served past the
  *   threshold: 60 rows, exact, HTTP 200. So is the OData `eq null` form, which
@@ -517,7 +600,7 @@
   // identical transcripts otherwise. This has already cost a round trip of
   // diagnosis, where the only tell was a stack-trace line number. Injected by
   // render_probes.py from a hash of this template and every partial.
-  log('INFO', 'probe revision 673ac1a0. Quote this when reporting results.');
+  log('INFO', 'probe revision 837b82e7. Quote this when reporting results.');
 
   // Say it at RUN TIME, not only in the header. An operator set this flag,
   // reasonably believed it was resetting the fixture between runs, and read
@@ -549,11 +632,21 @@
 
   expect('RUNCNT', 'Live ItemCount matches a declared checkpoint');
   expect('IDXSET', 'The intended indexes are set and the controls are not');
+  expect('IDXCLR', 'Can the negative control be un-indexed again?');
   expect('FLAGS', 'Indexed/AutoIndexed for all six columns');
   expect('CMPIDX', 'OData comparison, INDEXED Text (positive control)');
   expect('CMPUNI', 'OData comparison, UNINDEXED twin of Bucket (negative control)');
   expect('NULIDX', 'OData null test, INDEXED DateTime');
   expect('CMPCAM', 'CAML comparison, INDEXED Text');
+  expect('TWINCK', 'Do the indexed and unindexed twins still match the same rows?');
+  expect('VWIDX', 'RENDERED view, INDEXED filter, unguarded (manual: look)');
+  expect('VWGRD', 'RENDERED view, INDEXED filter, GUARDED (manual: look)');
+  expect('VWUNI', 'RENDERED view, UNINDEXED filter, unguarded (manual: look)');
+  expect('VWUGD', 'RENDERED view, UNINDEXED filter, GUARDED (manual: look)');
+  expect('GRDIDX', 'CAML comparison, INDEXED Text, GUARDED as #272 emits it');
+  expect('GRDNUL', 'CAML IsNull, INDEXED DateTime, GUARDED as #272 emits it');
+  expect('GRDUNI', 'CAML comparison, UNINDEXED twin, GUARDED (control)');
+  expect('GRDONLY', 'CAML the guard ALONE, matching every row (control)');
   expect('NULCAM', 'CAML IsNull, INDEXED DateTime (the question as _views.py asks it)');
   expect('PERSID', 'OData comparison, INDEXED Person');
   expect('LOOKID', 'OData comparison, INDEXED Lookup');
@@ -750,10 +843,10 @@
   //
   // Overriding Content-Type in extraHeaders works because the harness spreads
   // extraHeaders LAST, so a caller can replace a default rather than only add.
-  const setIndexed = async (name) => {
+  const setIndexed = async (name, indexed = true) => {
     const digest = await getDigest();
     return spPost(`${fieldsPath}/getbyinternalnameortitle('${name}')`,
-                  { __metadata: { type: 'SP.Field' }, Indexed: true }, digest,
+                  { __metadata: { type: 'SP.Field' }, Indexed: indexed }, digest,
                   {
                     Accept: 'application/json;odata=verbose',
                     'Content-Type': 'application/json;odata=verbose',
@@ -1184,6 +1277,52 @@
   // table. Read the flags back rather than trusting the status code. The
   // deployer's own index step is documented as "verified by readback" for
   // exactly this reason.
+  // ---- Restore the negative control before reading anything -----------
+  // Run of 2026-08-17: Shadow came back Indexed=true, AutoIndexed=true, so
+  // SharePoint had indexed it between runs and the negative control had
+  // expired. Without the control, "the indexed one was served" says nothing:
+  // the unindexed twin is what shows the throttle is enforced at this size.
+  //
+  // Attempted before IDXSET reads the flags, and REPORTED rather than
+  // assumed. If SharePoint re-indexes it during the run, or refuses the
+  // clear, the table below is void and IDXSET is what says so.
+  const clearControl = async () => {
+    const before = await readField('Shadow');
+    const wasIndexed = !readFailed(before) && before.body.Indexed === true;
+    if (!wasIndexed) {
+      record('IDXCLR', 'Can the negative control be un-indexed again?',
+             'NOT NEEDED',
+             `[${stamp}] Shadow is already unindexed, so the negative control `
+             + 'stands and nothing was written.');
+      return;
+    }
+    if (!ALLOW_WRITES) {
+      record('IDXCLR', 'Can the negative control be un-indexed again?',
+             'NOT ESTABLISHED',
+             `[${stamp}] Shadow is indexed and ALLOW_WRITES is false, so the `
+             + 'control cannot be restored. Every indexed-versus-unindexed row '
+             + 'is void until it is.');
+      return;
+    }
+    const cleared = await setIndexed('Shadow', false);
+    const after = await readField('Shadow');
+    const nowIndexed = readFailed(after) || after.body.Indexed !== false;
+    record('IDXCLR', 'Can the negative control be un-indexed again?',
+           nowIndexed ? 'DID NOT STICK' : 'CLEARED',
+           `[${stamp}] Shadow read Indexed=true; MERGE Indexed:false -> HTTP `
+           + `${cleared.status}; readback Indexed=`
+           + `${readFailed(after) ? 'unreadable' : after.body.Indexed}. `
+           + (nowIndexed
+             ? 'So the negative control cannot be restored on this list and '
+               + 'every indexed-versus-unindexed row here is void. Whether '
+               + 'SharePoint re-applies it immediately or the write was '
+               + 'refused, the comparison is gone either way.'
+             : 'The control is restored for this run. It was SharePoint that '
+               + 'set the flag, not this probe, so expect it back: read '
+               + 'FLAGS at the end of the run before trusting any pair.'));
+  };
+  await clearControl();
+
   const flags = [];
   const wrong = [];
   for (const [name, shouldBeIndexed] of schemas) {
@@ -1975,6 +2114,7 @@
     'NULCAM', 'CAML IsNull, INDEXED DateTime (the question as _views.py asks it)',
     "<Where><IsNull><FieldRef Name='ClosedAt'/></IsNull></Where>", matched);
 
+
   // ---- How many JOINS may one view project? (issue #44) ----------------
   // A different ceiling from everything else here, and a nastier one: the list
   // view LOOKUP threshold is a property of the view's SHAPE, so it bites on a
@@ -2363,7 +2503,210 @@
   }
   };
 
+  // Outside `measureFilters`, and called unconditionally, because this is
+  // the one question here that does not need a declared row count. Run of
+  // 2026-08-17: it sat inside and reported four rows unreached on a fixture
+  // holding 5,614 of the 6,000 loaded, which is exactly the case it was
+  // rewritten to answer.
+  const measureGuard = async () => {
+    // ---- Does the #272 guard change what is SERVED past the threshold? ---
+    // Deliberately OUTSIDE the checkpoint gate above, because this question
+    // does not need a declared row count. It needs the list to be past the
+    // threshold, and it compares the guarded query against the UNGUARDED one
+    // measured in the same run, on the same list, seconds apart.
+    //
+    // That is what makes it readable on a fixture that has drifted. The run of
+    // 2026-08-17 found 5,614 rows where 6,000 were loaded, and an absolute
+    // expected count would have been unreadable; a comparison is not, because
+    // both halves see whatever the list now holds. Every other row here asks
+    // "how many", so they keep the stricter gate.
+    const guardBlocked =
+      count < 0 ? 'ItemCount could not be read'
+      : count <= LIST_VIEW_THRESHOLD
+        ? `ItemCount ${count} is not past the ${LIST_VIEW_THRESHOLD} threshold, `
+          + 'so nothing here is throttled and the comparison says nothing'
+      : '';
+
+    // One line, unbroken, so a test can compare it to the emitted constant.
+    const GUARD = '<Or><IsNotNull><FieldRef Name="ID"/></IsNotNull><IsNull><FieldRef Name="ID"/></IsNull></Or>';
+    const guarded = (where) => `<Where><And>${where}${GUARD}</And></Where>`;
+    const IDX_LEAF = `<Eq><FieldRef Name='Bucket'/><Value Type='Text'>${RARE_BUCKET}</Value></Eq>`;
+    const UNI_LEAF = `<Eq><FieldRef Name='Shadow'/><Value Type='Text'>${RARE_BUCKET}</Value></Eq>`;
+    const NUL_LEAF = "<IsNull><FieldRef Name='ClosedAt'/></IsNull>";
+
+    // Rows and status, judged by nothing. The caller compares.
+    const rawCaml = async (where) => {
+      const digest = await getDigest();
+      // RowLimit ABOVE the list size on purpose. Run of 2026-08-17 sent
+      // RowLimit 200 and both controls came back with exactly 200 rows:
+      // SharePoint filled the page from the rows it had scanned and
+      // returned, so nothing breached the threshold and every 'served'
+      // here was uninformative. A limit past the list cannot be filled
+      // early, so a query that must scan the list has to scan it.
+      const viewXml = `<View><Query>${where}</Query><RowLimit>${count + 1000}</RowLimit></View>`;
+      const r = await spPost(
+        `web/lists/getbytitle('${odata(LIST)}')/RenderListDataAsStream`,
+        { parameters: { ViewXml: viewXml } }, digest);
+      const rows = (r.ok && r.body && Array.isArray(r.body.Row)) ? r.body.Row.length : null;
+      return { ok: r.ok, status: r.status, rows, text: (r.text || '').slice(0, 200) };
+    };
+
+    const guardPair = async (id, question, leaf, expectServed) => {
+      if (guardBlocked) {
+        record(id, question, 'NOT ESTABLISHED', `[${stamp}] not measured: ${guardBlocked}.`);
+        return;
+      }
+      const bare = await rawCaml(`<Where>${leaf}</Where>`);
+      const wrapped = await rawCaml(guarded(leaf));
+      const same = bare.ok === wrapped.ok && bare.rows === wrapped.rows;
+      // The unguarded half is the reference, so a run where IT disagrees with
+      // what this row expects says nothing about the guard.
+      if (bare.ok !== expectServed) {
+        record(id, question, 'NOT ESTABLISHED',
+          `[${stamp}] the UNGUARDED twin was ${bare.ok ? 'served' : 'refused'} `
+          + `(HTTP ${bare.status}) where this row expects it to be `
+          + `${expectServed ? 'served' : 'refused'}, so there is no reference to `
+          + `compare the guarded form against. ${bare.text}`);
+        return;
+      }
+      record(id, question,
+        same ? (bare.ok ? 'UNCHANGED (both served)' : 'UNCHANGED (both refused)')
+             : 'CHANGED',
+        `[${stamp}] unguarded: HTTP ${bare.status}, ${bare.rows} row(s). guarded: `
+        + `HTTP ${wrapped.status}, ${wrapped.rows} row(s). `
+        + (same
+          ? 'The conjunct changed neither the outcome nor the row count on a list '
+            + `of ${count}, past the ${LIST_VIEW_THRESHOLD} threshold.`
+          : 'THE CONJUNCT CHANGED WHAT SHAREPOINT SERVED. #272 emits it on every '
+            + 'view, so a filter that worked at this size stops working, on the '
+            + `largest lists, and no build can see it. ${wrapped.text}`));
+    };
+
+    // ---- Are the twins still twins? -----------------------------------
+    // Bucket and Shadow are seeded byte-identical, so the two filters must
+    // match the same rows. Run of 2026-08-17: Bucket returned 56 and Shadow
+    // returned 200, the page limit exactly, which is not a difference in
+    // indexing but a filter that did not restrict. Whenever that holds,
+    // GRDUNI is uninterpretable and so is any reading of GRDIDX as "the
+    // threshold was enforced and the guard survived it".
+    if (guardBlocked) {
+      record('TWINCK', 'Do the indexed and unindexed twins still match the same rows?',
+             'NOT ESTABLISHED', `[${stamp}] not measured: ${guardBlocked}.`);
+    } else {
+      const bucketRows = await rawCaml(`<Where>${IDX_LEAF}</Where>`);
+      const shadowRows = await rawCaml(`<Where>${UNI_LEAF}</Where>`);
+      const agree = bucketRows.ok && shadowRows.ok
+        && bucketRows.rows === shadowRows.rows;
+      record('TWINCK', 'Do the indexed and unindexed twins still match the same rows?',
+        agree ? 'AGREE' : 'DISAGREE',
+        `[${stamp}] Bucket: HTTP ${bucketRows.status}, ${bucketRows.rows} row(s). `
+        + `Shadow: HTTP ${shadowRows.status}, ${shadowRows.rows} row(s). `
+        + (agree
+          ? 'Identical data, identical counts, so the pair differs only in the '
+            + 'index and GRDUNI below is a comparison rather than a coincidence.'
+          : 'The twins do NOT match the same rows, so they differ in more than '
+            + 'the index and no indexed-versus-unindexed row here is readable. '
+            + 'Reconcile the seed before reading GRDUNI.'));
+    }
+
+    // The two measurements. Both twins are on INDEXED columns and are expected
+    // to be served, so a change here is the guard's doing.
+    await guardPair('GRDIDX', 'CAML comparison, INDEXED Text, GUARDED as #272 emits it',
+                    IDX_LEAF, true);
+    await guardPair('GRDNUL', 'CAML IsNull, INDEXED DateTime, GUARDED as #272 emits it',
+                    NUL_LEAF, true);
+    // The control: the UNINDEXED twin. It expects SERVED, not refused, and the
+    // run of 2026-08-17 is why. On this surface the threshold does not throw;
+    // GRDONLY came back HTTP 200 holding exactly 5,000 of 5,614, a silently
+    // truncated answer. So the unindexed twin is served too, and what the
+    // guard must not change is the COUNT, which is what guardPair compares.
+    await guardPair('GRDUNI', 'CAML comparison, UNINDEXED twin, GUARDED (control)',
+                    UNI_LEAF, true);
+
+    // The guard alone, matching every row in the list, so it must be refused
+    // for the same reason any unfiltered query is. Served would mean SharePoint
+    // treats it as satisfiable without scanning, which would make it a filter
+    // rather than the inert conjunct every other row assumes.
+    if (guardBlocked) {
+      record('GRDONLY', 'CAML the guard ALONE, matching every row (control)',
+             'NOT ESTABLISHED', `[${stamp}] not measured: ${guardBlocked}.`);
+    } else {
+      const alone = await rawCaml(`<Where>${GUARD}</Where>`);
+      record('GRDONLY', 'CAML the guard ALONE, matching every row (control)',
+             alone.ok ? 'SERVED' : 'REFUSED',
+             `[${stamp}] HTTP ${alone.status}, ${alone.rows} row(s) of ${count}. `
+             + (alone.ok
+               ? 'SERVED, and it does not settle anything on its own: 5,000 rows on an '
+                 + 'HTTP 200 is the server page ceiling as much as it is a throttle. '
+                 + 'Read GRDIDX with that in mind. ' + alone.text
+               : 'Refused, as an unfiltered query at this size should be, so the '
+                 + 'guard is not being treated as a selective filter.'));
+    }
+
+    // ---- Four VIEWS, because a row count cannot answer this -------------
+    // Every REST surface here pages at 5,000, so a query returning 5,000 of
+    // 5,614 is a page ceiling and a threshold breach at the same time and
+    // this probe cannot tell them apart. Run of 2026-08-17 read one as the
+    // other.
+    //
+    // A rendered view can. SharePoint either lists the rows or shows the
+    // threshold message, and the two look nothing alike. So create the four
+    // views and have an operator open them.
+    //
+    // VWIDX against VWGRD IS THE QUESTION, and it needs no seed reconciled:
+    // same column, same value, differing only in the conjunct. VWGRD failing
+    // where VWIDX renders is the #272 hazard, seen on the surface that ships.
+    //
+    // VWUNI against VWUGD is the control. A selective filter on an unindexed
+    // column must scan the whole list, so VWUNI must show the threshold
+    // message; if it renders, nothing on this list is being throttled and
+    // VWIDX rendering says nothing. TWINCK's seed fault does not reach this
+    // pair, which asks whether the view loads rather than how many rows match.
+    const VIEW_SHAPES = [
+      ['VWIDX', 'RENDERED view, INDEXED filter, unguarded (manual: look)',
+       `<Where>${IDX_LEAF}</Where>`],
+      ['VWGRD', 'RENDERED view, INDEXED filter, GUARDED (manual: look)',
+       guarded(IDX_LEAF)],
+      ['VWUNI', 'RENDERED view, UNINDEXED filter, unguarded (manual: look)',
+       `<Where>${UNI_LEAF}</Where>`],
+      ['VWUGD', 'RENDERED view, UNINDEXED filter, GUARDED (manual: look)',
+       guarded(UNI_LEAF)],
+    ];
+    for (const [id, question, where] of VIEW_SHAPES) {
+      if (guardBlocked) {
+        record(id, question, 'NOT ESTABLISHED', `[${stamp}] not measured: ${guardBlocked}.`);
+        continue;
+      }
+      if (!ALLOW_WRITES) {
+        record(id, question, 'NOT ESTABLISHED',
+               `[${stamp}] ALLOW_WRITES is false, so no view was created.`);
+        continue;
+      }
+      const title = `Threshold ${id}`;
+      const listPath = `web/lists/getbytitle('${odata(LIST)}')`;
+      const d = await getDigest();
+      const made = await spPost(`${listPath}/views`, {
+        __metadata: { type: 'SP.View' }, Title: title, ViewQuery: where,
+        PersonalView: false, Paged: true, RowLimit: 100,
+      }, d, {
+        Accept: 'application/json;odata=verbose',
+        'Content-Type': 'application/json;odata=verbose',
+      });
+      const listing = await spGet(`${listPath}/views?$select=Title,ServerRelativeUrl`);
+      const url = ((!readFailed(listing) && listing.body.value) || [])
+        .find((v) => v.Title === title)?.ServerRelativeUrl || null;
+      record(id, question, url ? 'MANUAL' : 'NOT ESTABLISHED',
+        url
+          ? `[${stamp}] OPEN ${window.location.origin}${url} and report ONE of: `
+            + '"rows" (it listed items) or "threshold" (it showed the list view '
+            + 'threshold message). The filter is ' + where
+          : `[${stamp}] the view could not be created: HTTP ${made.status} `
+            + `${(made.text || '').slice(0, 160)}`);
+    }
+  };
+
   if (!blocked) await measureFilters();
+  await measureGuard();
 
   report();
   // report() counts only literal NOT ESTABLISHED outcomes, so a table that is
