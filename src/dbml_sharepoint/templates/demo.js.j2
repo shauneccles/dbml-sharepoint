@@ -70,6 +70,10 @@
       for (const f of item.fields) {
         if (f.kind === 'literal') {
           body[f.name] = f.value;
+        } else if (f.kind === 'multi_value') {
+          // A multi-value column takes a collection, not a bare array: the
+          // shape below is what SharePoint accepted (probe M3, 2026-08-17).
+          body[f.name] = { __metadata: { type: f.metadata_type }, results: f.results };
         } else if (f.kind === 'me') {
           // Person columns write <Name>Id; the demo owner is the operator.
           body[`${f.name}Id`] = _spPageContextInfo.userId;

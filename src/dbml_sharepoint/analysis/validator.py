@@ -1,6 +1,7 @@
 # src/dbml_sharepoint/analysis/validator.py
 """Validation rules for the parsed schema."""
 
+from collections import Counter
 from dataclasses import replace
 
 from dbml_sharepoint.analysis import typemap
@@ -105,6 +106,20 @@ def validate(schema: Schema) -> list[Finding]:
                 FindingCode.DUPLICATE_ENUM_NAME, at_enum, "duplicate enum name.",
             ))
         seen_enums.add(enum.name)
+        # A repeat reaches the field's `Choices` collection, which
+        # `deploy/_field_reconcile.js.j2` compares index by index.
+        for member, count in Counter(enum.members).items():
+            if count > 1:
+                findings.append(_report(
+                    FindingCode.DUPLICATE_ENUM_MEMBER,
+                    at_enum,
+                    f"enum member {member!r} is declared {count} times. The "
+                    f"deploy body carries the members as an ordered `Choices` "
+                    f"collection and the field reconciler compares that "
+                    f"collection index by index. What SharePoint stores for a "
+                    f"repeated member is unmeasured, so the repeat can leave the "
+                    f"reconciler unable to converge. Declare the member once.",
+                ))
         if not enum.members:
             findings.append(_report(
                 FindingCode.EMPTY_ENUM, at_enum, "enum has zero members.",
@@ -179,20 +194,13 @@ def _check_column(
     elif (
         col.type not in typemap.KNOWN_SCALARS
         and col.type not in typemap.CALCULATED_TYPES
-        and col.type not in enums
-        # `audit_event[]` is a multi-value Choice over the enum's members.
-        # Asked through the ELEMENT type rather than by adding the array form
-        # to `enums`, because the array form is not a thing any schema
-        # declares -- and only an enum qualifies, so `person[]` and a
-        # multi-value lookup stay unknown types here, exactly as `map_column`
-        # keeps them unknown. The two must agree: `build` reports this as a
-        # Finding while `report` reaches the raising site in typemap, and a
-        # type one accepts and the other refuses reads as the two commands
-        # disagreeing about the file.
-        and not (
-            typemap.is_multi_value(col.type)
-            and typemap.element_type(col.type) in enums
-        )
+        # Both arities in one question, and the same one `map_column` asks.
+        # Only an enum qualifies, so `person[]` and a multi-value lookup stay
+        # unknown types here exactly as they do there. The two must agree:
+        # `build` reports this as a Finding while `report` reaches the raising
+        # site in typemap, and a type one accepts and the other refuses reads
+        # as the two commands disagreeing about the file.
+        and typemap.choice_enum_for(col.type, enums) is None
         and not is_pk_id
     ):
         findings.append(_report(
